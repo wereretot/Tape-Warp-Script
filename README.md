@@ -32,4 +32,4 @@ Music Warper is a Python script that simulates the effect of a worn-out cassette
 
 5. Navigate to the music file you want to warp. Don't worry if it's not in mpeg3 format, the script will automatically convert it to it and start the conversion automatically.
 
-Written by ChatGPT and checked by @wereretot
+Written by ChatGPT. Checked and verified by @wereretot
