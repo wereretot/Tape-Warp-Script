@@ -27,32 +27,25 @@ class LinearWarpThread(threading.Thread):
 
     def warp_speed(self, chunk):
         speed = self.speed_ratio
-        if self.temperature > 30:
-            speed *= random.uniform(0.9, 0.95)
-        elif self.temperature < 20:
-            speed *= random.uniform(1.05, 1.1)
 
-        return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate * speed)})
+        speed = random.uniform(0.98, 1.01) - (self.temperature / 1000)
+
+        return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / speed)})
 
     def warp_pitch(self, chunk):
         pitch = self.pitch_ratio
-        if self.temperature > 35:
-            pitch += random.uniform(-0.2, -0.1)
-        elif self.temperature < 15:
-            pitch += random.uniform(0.1, 0.2)
+        pitch = random.uniform(0.98, 1.01) - (self.temperature / 1000)
 
-        pitch_factor = math.pow(2, pitch / 12.0)  # Convert pitch to pitch factor
+        pitch_factor = pitch # Convert pitch to pitch factor
 
-        return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate * pitch_factor)})
+        return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / pitch_factor)})
 
     def apply_wobble(self, chunk):
         if len(chunk) < 100:
             return chunk
 
-        if random.random() < self.wobble_factor:
-            wobble_speed = random.uniform(0.97, 1.03)
-            wobble_pitch = random.uniform(0.97, 1.03)
-
+            wobble_speed = random.uniform(0.98, 1.01) * self.wobble_factor / (self.temperature / 500)
+            wobble_pitch = random.uniform(0.98, 1.01) * self.wobble_factor / (self.temperature / 500)
             chunk = chunk.speedup(playback_speed=wobble_speed)
             chunk = chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate * wobble_pitch)})
 
@@ -78,7 +71,7 @@ def load_settings():
     return settings
 
 
-def change_speed_and_pitch(filename, output_filename, speed_range=(0.94, 1.04), ambient_temperature=25, wobble_factor=0.3):
+def change_speed_and_pitch(filename, output_filename, speed_range, ambient_temperature, wobble_factor):
     audio = AudioSegment.from_file(filename)
 
     duration = len(audio)
@@ -108,18 +101,18 @@ def change_speed_and_pitch(filename, output_filename, speed_range=(0.94, 1.04), 
         new_audio += new_chunk
 
     ensure_directory_exists(output_filename)
-    new_audio.export(output_filename, format='mp3')
+    new_audio.export(output_filename, format='wav')
 
 
-def convert_to_mp3(filename):
+def convert_to_wav(filename):
     base, ext = os.path.splitext(filename)
-    if ext.lower() == ".mp3":
+    if ext.lower() == ".wav":
         return filename
 
-    output_filename = base + ".mp3"
+    output_filename = base + "temp" + ".wav"
     audio = AudioSegment.from_file(filename)
     ensure_directory_exists(output_filename)
-    audio.export(output_filename, format='mp3')
+    audio.export(output_filename, format='wav')
     return output_filename
 
 
@@ -128,7 +121,7 @@ def select_input_file():
     root.withdraw()
     file_path = filedialog.askopenfilename(
         title="Select Input File",
-        filetypes=(("Audio files", "*.wav;*.mp3"), ("All files", "*.*"))
+        filetypes=(("Audio files", "*.wav *.mp3 *.opus *.ogg *.flac *.webm"), ("All files", "*.*"))
     )
     return file_path
 
@@ -139,8 +132,8 @@ def main():
         print("No input file selected.")
         return
 
-    output_filename = "tape_warp/output_file.mp3"
-    input_filename = convert_to_mp3(input_filename)
+    output_filename = "tape_warp/output_file.wav"
+    input_filename = convert_to_wav(input_filename)
     settings = load_settings()
     change_speed_and_pitch(
         input_filename,
