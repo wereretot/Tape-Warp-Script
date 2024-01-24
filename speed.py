@@ -28,13 +28,13 @@ class LinearWarpThread(threading.Thread):
     def warp_speed(self, chunk):
         speed = self.speed_ratio
 
-        speed = random.uniform(0.98, 1.01) - (self.temperature / 1000)
+        speed = random.uniform(0.99, 1.01) - (self.temperature / 1000)
 
         return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / speed)})
 
     def warp_pitch(self, chunk):
         pitch = self.pitch_ratio
-        pitch = random.uniform(0.98, 1.01) - (self.temperature / 1000)
+        pitch = random.uniform(0.99, 1.01) - (self.temperature / 1000)
 
         pitch_factor = pitch # Convert pitch to pitch factor
 
@@ -44,8 +44,8 @@ class LinearWarpThread(threading.Thread):
         if len(chunk) < 100:
             return chunk
 
-            wobble_speed = random.uniform(0.98, 1.01) * self.wobble_factor / (self.temperature / 500)
-            wobble_pitch = random.uniform(0.98, 1.01) * self.wobble_factor / (self.temperature / 500)
+            wobble_speed = random.uniform(0.99, 1.01) * self.wobble_factor / (self.temperature / 500)
+            wobble_pitch = random.uniform(0.99, 1.01) * self.wobble_factor / (self.temperature / 500)
             chunk = chunk.speedup(playback_speed=wobble_speed)
             chunk = chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate * wobble_pitch)})
 
