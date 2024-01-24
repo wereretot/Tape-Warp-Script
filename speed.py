@@ -101,18 +101,18 @@ def change_speed_and_pitch(filename, output_filename, speed_range, ambient_tempe
         new_audio += new_chunk
 
     ensure_directory_exists(output_filename)
-    new_audio.export(output_filename, format='wav')
+    new_audio.export(output_filename, format='mp3')
 
 
 def convert_to_wav(filename):
     base, ext = os.path.splitext(filename)
-    if ext.lower() == ".wav":
+    if ext.lower() == ".mp3":
         return filename
 
-    output_filename = base + "temp" + ".wav"
+    output_filename = base + "temp" + ".mp3"
     audio = AudioSegment.from_file(filename)
     ensure_directory_exists(output_filename)
-    audio.export(output_filename, format='wav')
+    audio.export(output_filename, format='mp3')
     return output_filename
 
 
@@ -132,7 +132,7 @@ def main():
         print("No input file selected.")
         return
 
-    output_filename = "tape_warp/output_file.wav"
+    output_filename = "tape_warp/warped_audio.mp3"
     input_filename = convert_to_wav(input_filename)
     settings = load_settings()
     change_speed_and_pitch(
