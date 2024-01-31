@@ -8,6 +8,8 @@ import math
 import tkinter as tk
 from tkinter import filedialog
 
+output_format = "wav"
+
 class LinearWarpThread(threading.Thread):
     def __init__(self, audio, start_time, end_time, speed_ratio, pitch_ratio, temperature, wobble_factor):
         threading.Thread.__init__(self)
@@ -28,13 +30,13 @@ class LinearWarpThread(threading.Thread):
     def warp_speed(self, chunk):
         speed = self.speed_ratio
 
-        speed = random.uniform(0.99, 1.01) - (self.temperature / 1000)
+        speed = random.uniform(0.98, 1.01) - (self.temperature / 1000)
 
         return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / speed)})
 
     def warp_pitch(self, chunk):
         pitch = self.pitch_ratio
-        pitch = random.uniform(0.99, 1.01) - (self.temperature / 1000)
+        pitch = random.uniform(0.98, 1.01) - (self.temperature / 1000)
 
         pitch_factor = pitch # Convert pitch to pitch factor
 
@@ -44,8 +46,8 @@ class LinearWarpThread(threading.Thread):
         if len(chunk) < 100:
             return chunk
 
-            wobble_speed = random.uniform(0.99, 1.01) * self.wobble_factor / (self.temperature / 500)
-            wobble_pitch = random.uniform(0.99, 1.01) * self.wobble_factor / (self.temperature / 500)
+            wobble_speed = random.uniform(0.98, 1) * self.wobble_factor / (self.temperature / 500)
+            wobble_pitch = random.uniform(0.98, 1) * self.wobble_factor / (self.temperature / 500)
             chunk = chunk.speedup(playback_speed=wobble_speed)
             chunk = chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate * wobble_pitch)})
 
@@ -81,16 +83,19 @@ def change_speed_and_pitch(filename, output_filename, speed_range, ambient_tempe
 
     current_time = 0
     while current_time < duration:
+
+        warp_speed = random.uniform(40, 413) # in ms
+
         speed = random.uniform(speed_range[0], speed_range[1])
         pitch = random.uniform(speed_range[0], speed_range[1])
 
-        next_time = min(current_time + 100, duration)
+        next_time = min(current_time + warp_speed, duration)
         thread = LinearWarpThread(audio, current_time, next_time, speed, pitch, ambient_temperature, wobble_factor)
         threads.append(thread)
         thread.start()
 
-        current_time += 100
-        progress_bar.update(100)
+        current_time += warp_speed
+        progress_bar.update(warp_speed)
 
     progress_bar.close()
 
@@ -101,18 +106,18 @@ def change_speed_and_pitch(filename, output_filename, speed_range, ambient_tempe
         new_audio += new_chunk
 
     ensure_directory_exists(output_filename)
-    new_audio.export(output_filename, format='mp3')
+    new_audio.export(output_filename, format=f'{output_format}')
 
 
 def convert_to_wav(filename):
     base, ext = os.path.splitext(filename)
-    if ext.lower() == ".mp3":
+    if ext.lower() == f".{output_format}":
         return filename
 
-    output_filename = base + "temp" + ".mp3"
+    output_filename = base + "temp" + f".{output_format}"
     audio = AudioSegment.from_file(filename)
     ensure_directory_exists(output_filename)
-    audio.export(output_filename, format='mp3')
+    audio.export(output_filename, format=f'{output_format}')
     return output_filename
 
 
@@ -132,7 +137,7 @@ def main():
         print("No input file selected.")
         return
 
-    output_filename = "tape_warp/warped_audio.mp3"
+    output_filename = "tape_warp/warped_audio" + f".{output_format}"
     input_filename = convert_to_wav(input_filename)
     settings = load_settings()
     change_speed_and_pitch(
