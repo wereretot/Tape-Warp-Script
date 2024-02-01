@@ -41,7 +41,7 @@ class LinearWarpThread(threading.Thread):
             case 1:
                 speed += random.uniform(-0.01, 0.01)
             case 2:
-                speed = random.uniform(0.97, 1.00)
+                speed = random.uniform(0.98, 1.00)
 
 
         return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / speed)})
@@ -55,7 +55,7 @@ class LinearWarpThread(threading.Thread):
             case 1:
                 pitch += random.uniform(-0.01, 0.01)
             case 2:
-                pitch = random.uniform(0.97, 1.00)
+                pitch = random.uniform(0.98, 1.00)
 
         return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / pitch)})
 
