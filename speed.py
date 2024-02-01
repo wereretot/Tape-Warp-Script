@@ -35,13 +35,27 @@ class LinearWarpThread(threading.Thread):
     def warp_speed(self, chunk):
         speed = self.speed_ratio
 
-        speed += random.uniform(-0.01, 0.01)
+        chance_of_warp = random.uniform(1, 2)
+
+        match chance_of_warp:
+            case 1:
+                speed += random.uniform(-0.01, 0.01)
+            case 2:
+                speed = random.uniform(0.97, 1.00)
+
 
         return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / speed)})
 
     def warp_pitch(self, chunk):
         pitch = self.pitch_ratio
-        pitch += random.uniform(-0.01, 0.01)
+
+        chance_of_warp = random.uniform(1, 2)
+
+        match chance_of_warp:
+            case 1:
+                pitch += random.uniform(-0.01, 0.01)
+            case 2:
+                pitch = random.uniform(0.97, 1.00)
 
         return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / pitch)})
 
