@@ -8,7 +8,7 @@ import math
 import tkinter as tk
 from tkinter import filedialog
 
-output_format = "wav"
+output_format = "mp3"
 warp_speed = random.uniform(40, 113) # in ms
 
 class LinearWarpThread(threading.Thread):
