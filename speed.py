@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 output_format = "wav"
-warp_speed = random.uniform(40, 113) # in ms
+warp_speed = random.uniform(20, 60) # in ms
 
 class LinearWarpThread(threading.Thread):
 
@@ -26,7 +26,7 @@ class LinearWarpThread(threading.Thread):
 
     def run(self):
         global warp_power
-        warp_power = random.uniform(40, 113) # in ms
+        warp_power = random.uniform(20, 60) # in ms
         chunk = self.audio[self.start_time:self.end_time]
         chunk_with_altered_speed = self.warp_speed(chunk)
         chunk_with_altered_pitch = self.warp_pitch(chunk_with_altered_speed)
@@ -67,8 +67,8 @@ class LinearWarpThread(threading.Thread):
         if len(chunk) < 100:
             return chunk
 
-            wobble_speed = random.uniform(0.98, 1) * self.wobble_factor / (self.temperature / 500)
-            wobble_pitch = random.uniform(0.98, 1) * self.wobble_factor / (self.temperature / 500)
+            wobble_speed = random.uniform(0.99, 1) * self.wobble_factor / (self.temperature / 500)
+            wobble_pitch = random.uniform(0.99, 1) * self.wobble_factor / (self.temperature / 500)
             chunk = chunk.speedup(playback_speed)
             chunk = chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate * wobble_pitch)})
 
