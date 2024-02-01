@@ -9,8 +9,10 @@ import tkinter as tk
 from tkinter import filedialog
 
 output_format = "wav"
+warp_speed = random.uniform(40, 113) # in ms
 
 class LinearWarpThread(threading.Thread):
+
     def __init__(self, audio, start_time, end_time, speed_ratio, pitch_ratio, temperature, wobble_factor):
         threading.Thread.__init__(self)
         self.audio = audio
@@ -21,7 +23,10 @@ class LinearWarpThread(threading.Thread):
         self.temperature = temperature
         self.wobble_factor = wobble_factor
 
+
     def run(self):
+        global warp_power
+        warp_power = random.uniform(40, 413) # in ms
         chunk = self.audio[self.start_time:self.end_time]
         chunk_with_altered_speed = self.warp_speed(chunk)
         chunk_with_altered_pitch = self.warp_pitch(chunk_with_altered_speed)
@@ -30,17 +35,15 @@ class LinearWarpThread(threading.Thread):
     def warp_speed(self, chunk):
         speed = self.speed_ratio
 
-        speed = random.uniform(0.98, 1.01) - (self.temperature / 1000)
+        speed += random.uniform(-0.01, 0.01)
 
         return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / speed)})
 
     def warp_pitch(self, chunk):
         pitch = self.pitch_ratio
-        pitch = random.uniform(0.98, 1.01) - (self.temperature / 1000)
+        pitch += random.uniform(-0.01, 0.01)
 
-        pitch_factor = pitch # Convert pitch to pitch factor
-
-        return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / pitch_factor)})
+        return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / pitch)})
 
     def apply_wobble(self, chunk):
         if len(chunk) < 100:
@@ -83,8 +86,6 @@ def change_speed_and_pitch(filename, output_filename, speed_range, ambient_tempe
 
     current_time = 0
     while current_time < duration:
-
-        warp_speed = random.uniform(40, 413) # in ms
 
         speed = random.uniform(speed_range[0], speed_range[1])
         pitch = random.uniform(speed_range[0], speed_range[1])
