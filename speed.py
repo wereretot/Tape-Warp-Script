@@ -26,7 +26,7 @@ class LinearWarpThread(threading.Thread):
 
     def run(self):
         global warp_power
-        warp_power = random.uniform(40, 413) # in ms
+        warp_power = random.uniform(40, 113) # in ms
         chunk = self.audio[self.start_time:self.end_time]
         chunk_with_altered_speed = self.warp_speed(chunk)
         chunk_with_altered_pitch = self.warp_pitch(chunk_with_altered_speed)
@@ -35,13 +35,15 @@ class LinearWarpThread(threading.Thread):
     def warp_speed(self, chunk):
         speed = self.speed_ratio
 
-        chance_of_warp = random.uniform(1, 2)
+        chance_of_warp = random.uniform(1, 3)
 
         match chance_of_warp:
             case 1:
                 speed += random.uniform(-0.01, 0.01)
             case 2:
-                speed = random.uniform(0.98, 1.00)
+                speed += random.uniform(-0.05, 0.05)
+            case 3:
+                speed = 1.00
 
 
         return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / speed)})
@@ -49,13 +51,15 @@ class LinearWarpThread(threading.Thread):
     def warp_pitch(self, chunk):
         pitch = self.pitch_ratio
 
-        chance_of_warp = random.uniform(1, 2)
+        chance_of_warp = random.uniform(1, 3)
 
         match chance_of_warp:
             case 1:
                 pitch += random.uniform(-0.01, 0.01)
             case 2:
-                pitch = random.uniform(0.98, 1.00)
+                pitch += random.uniform(-0.05, 0.05)
+            case 3:
+                pitch = 1.00
 
         return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / pitch)})
 
@@ -65,7 +69,7 @@ class LinearWarpThread(threading.Thread):
 
             wobble_speed = random.uniform(0.98, 1) * self.wobble_factor / (self.temperature / 500)
             wobble_pitch = random.uniform(0.98, 1) * self.wobble_factor / (self.temperature / 500)
-            chunk = chunk.speedup(playback_speed=wobble_speed)
+            chunk = chunk.speedup(playback_speed)
             chunk = chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate * wobble_pitch)})
 
         return chunk
