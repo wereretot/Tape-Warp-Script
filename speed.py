@@ -7,9 +7,10 @@ from configparser import ConfigParser
 import math
 import tkinter as tk
 from tkinter import filedialog
+from random import randrange
 
-output_format = "opus"
-warp_speed = random.uniform(50, 130) # in ms
+output_format = "mp3"
+warp_speed = random.uniform(10, 30) # in ms
 
 class LinearWarpThread(threading.Thread):
 
@@ -26,7 +27,7 @@ class LinearWarpThread(threading.Thread):
 
     def run(self):
         global warp_power
-        warp_power = random.uniform(50, 130) # in ms
+        warp_power = random.uniform(10, 30) # in ms
         chunk = self.audio[self.start_time:self.end_time]
         chunk_with_altered_speed = self.warp_speed(chunk)
         chunk_with_altered_pitch = self.warp_pitch(chunk_with_altered_speed)
@@ -35,20 +36,23 @@ class LinearWarpThread(threading.Thread):
     def warp_speed(self, chunk):
         speed = self.speed_ratio
 
-        chance_of_warp = random.uniform(1, 6)
+        chance_of_warp = randrange(6)
+
+        ## for debugging
+        print(chance_of_warp)
 
         match chance_of_warp:
+            case 0:
+                speed += random.uniform(-0.01, 0.00)
             case 1:
-                speed += random.uniform(-0.01, 0.01)
+                speed += random.uniform(-0.04, 0.01)
             case 2:
-                speed += random.uniform(-0.01, 0.01)
+                speed += random.uniform(-0.03, 0.01)
             case 3:
-                speed += random.uniform(-0.01, 0.01)
+                speed += random.uniform(-0.05, 0.01)
             case 4:
-                speed += random.uniform(-0.01, 0.01)
+                speed += random.uniform(-0.10, 0.05)
             case 5:
-                speed += random.uniform(-0.05, 0.05)
-            case 6:
                 speed = 1.00
 
 
@@ -57,21 +61,21 @@ class LinearWarpThread(threading.Thread):
     def warp_pitch(self, chunk):
         pitch = self.pitch_ratio
 
-        chance_of_warp = random.uniform(1, 6)
+        chance_of_warp = randrange(6)
 
         match chance_of_warp:
+            case 0:
+                pitch += random.uniform(-0.02, 0.01)
             case 1:
-                speed += random.uniform(-0.01, 0.01)
+                pitch += random.uniform(-0.05, 0.01)
             case 2:
-                speed += random.uniform(-0.01, 0.01)
+                pitch += random.uniform(-0.07, 0.01)
             case 3:
-                speed += random.uniform(-0.01, 0.01)
+                pitch += random.uniform(-0.10, 0.01)
             case 4:
-                speed += random.uniform(-0.01, 0.01)
+                pitch += random.uniform(-0.15, 0.05)
             case 5:
-                speed += random.uniform(-0.05, 0.05)
-            case 6:
-                speed = 1.00
+                pitch = 1.00
 
         return chunk._spawn(chunk.raw_data, overrides={"frame_rate": int(chunk.frame_rate / pitch)})
 
