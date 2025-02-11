@@ -55,7 +55,7 @@ def process_audio(file_path, min_speed, max_speed, modulation_rate):
         modulated_audio = sine_wave_pitch_modulation(audio, sample_rate, min_speed, max_speed, modulation_rate)
 
         script_directory = os.path.dirname(os.path.realpath(__file__))
-        file_extension = os.path.splitext(file_path)[1]
+        file_extension = ".mp3"
         output_file = os.path.join(script_directory, os.path.splitext(os.path.basename(file_path))[0] + "_modulated" + file_extension)
         modulated_audio.export(output_file, format=file_extension[1:])
 
