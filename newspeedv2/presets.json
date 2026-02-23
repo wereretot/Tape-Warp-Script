@@ -1,0 +1,26 @@
+{
+    "1970s Master Tape": {
+        "base_ips": 30.0,
+        "motor_health": 0.02,
+        "drive": 1.05,
+        "hiss": 0.0001,
+        "cutoff_base": 21000,
+        "wow_dep": 0.01
+    },
+    "Consumer Cassette": {
+        "base_ips": 1.875,
+        "motor_health": 0.9,
+        "drive": 2.2,
+        "hiss": 0.003,
+        "cutoff_base": 12000,
+        "wow_dep": 1.2
+    },
+    "Vintage Dictaphone": {
+        "base_ips": 0.937,
+        "motor_health": 3.5,
+        "drive": 4.5,
+        "hiss": 0.01,
+        "cutoff_base": 4500,
+        "wow_dep": 4.0
+    }
+}
