@@ -1,4 +1,3 @@
-# new_speedv2_refactor.py
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import threading
@@ -12,7 +11,7 @@ from scipy.signal import butter, lfilter
 class ForensicTapeStudio:
     def __init__(self, root):
         self.root = root
-        self.root.title("Analog Forensics: Mechanical Stability Patch")
+        self.root.title("Analog Forensics: Polished Master Suite")
         self.root.geometry("1000x980")
         
         # Audio Engine State
@@ -24,11 +23,12 @@ class ForensicTapeStudio:
         self.is_playing = False
         self.lock = threading.Lock()
         
-        # --- Physical State State ---
+        # --- Physical State (Persistent across blocks) ---
         self.filter_zi = None
         self.hiss_zi = None
-        self.current_motor_speed = 1.0  # The actual speed of the motor at this moment
-        self.belt_slip_state = 0.0      # Temporary speed dip from belt friction
+        self.current_motor_speed = 1.0  
+        self.belt_slip_val = 0.0      
+        self.surge_state = 0.0          # Smoothed voltage jitter
         
         self.controls = {} 
         self.setup_gui()
@@ -75,7 +75,6 @@ class ForensicTapeStudio:
         tabs = ttk.Notebook(self.root)
         tabs.pack(fill="both", expand=True, padx=15, pady=10)
 
-        # Tab: Mechanical
         tab_mech = tk.Frame(tabs)
         tabs.add(tab_mech, text=" Mechanical Health ")
         self.motor_health = self.create_complex_slider(tab_mech, "Motor Surge (Voltage Chaos)", 0.0, 10.0, 0.1)
@@ -84,7 +83,6 @@ class ForensicTapeStudio:
         self.wow_hz = self.create_complex_slider(tab_mech, "Wow Rate (Cycle Speed)", 0.1, 8.0, 0.5)
         self.wow_dep = self.create_complex_slider(tab_mech, "Wow Depth (Pitch Sway)", 0.0, 45.0, 0.5)
 
-        # Tab: Electronics
         tab_elec = tk.Frame(tabs)
         tabs.add(tab_elec, text=" Signal & Noise ")
         self.hiss = self.create_complex_slider(tab_elec, "Organic Hiss Floor", 0.0, 0.01, 0.001)
@@ -133,22 +131,8 @@ class ForensicTapeStudio:
             "Studio Reel (15ips)": {"motor_health":0.01, "motor_drag":0.0, "belt_slip":0.0, "wow_hz":0.2, "wow_dep":0.02, "hiss":0.00005, "hiss_grit":8000, "drive":1.05, "cutoff":22000},
             "Radio Broadcast 1970": {"motor_health":0.2, "motor_drag":0.0, "belt_slip":0.1, "wow_hz":0.5, "wow_dep":0.15, "hiss":0.001, "hiss_grit":4500, "drive":2.1, "cutoff":14000},
             "Factory Fresh": {"motor_health":0.05, "motor_drag":0.0, "belt_slip":0.05, "wow_hz":0.4, "wow_dep":0.05, "hiss":0.0001, "hiss_grit":6000, "drive":1.1, "cutoff":20000},
-            "Chrome Type II (Clean)": {"motor_health":0.1, "motor_drag":0.0, "belt_slip":0.2, "wow_hz":0.6, "wow_dep":0.4, "hiss":0.0015, "hiss_grit":5500, "drive":1.4, "cutoff":16000},
-            "Ferric Type I (Cheapo)": {"motor_health":0.4, "motor_drag":0.1, "belt_slip":0.8, "wow_hz":1.1, "wow_dep":1.2, "hiss":0.004, "hiss_grit":3200, "drive":2.8, "cutoff":11000},
-            "Walkman (Low Battery)": {"motor_health":1.5, "motor_drag":2.5, "belt_slip":1.2, "wow_hz":0.4, "wow_dep":3.5, "hiss":0.005, "hiss_grit":2800, "drive":1.8, "cutoff":9000},
-            "VHS Standard Play": {"motor_health":0.3, "motor_drag":0.0, "belt_slip":0.4, "wow_hz":0.8, "wow_dep":0.6, "hiss":0.003, "hiss_grit":3800, "drive":3.5, "cutoff":8500},
-            "VHS Long Play (EP)": {"motor_health":0.8, "motor_drag":0.2, "belt_slip":1.5, "wow_hz":1.5, "wow_dep":2.8, "hiss":0.009, "hiss_grit":2200, "drive":6.5, "cutoff":4500},
-            "Answering Machine": {"motor_health":2.0, "motor_drag":0.5, "belt_slip":2.0, "wow_hz":0.8, "wow_dep":4.5, "hiss":0.012, "hiss_grit":1200, "drive":15.0, "cutoff":3200},
-            "Worn Drive Belt": {"motor_health":0.5, "motor_drag":0.1, "belt_slip":8.0, "wow_hz":1.2, "wow_dep":2.5, "hiss":0.002, "hiss_grit":3500, "drive":1.8, "cutoff":12000},
-            "Sticky Shed Syndrome": {"motor_health":2.0, "motor_drag":4.0, "belt_slip":0.5, "wow_hz":0.2, "wow_dep":6.0, "hiss":0.003, "hiss_grit":2000, "drive":4.0, "cutoff":5000},
-            "Capstan Slip": {"motor_health":0.1, "motor_drag":0.0, "belt_slip":18.0, "wow_hz":5.0, "wow_dep":1.5, "hiss":0.002, "hiss_grit":4000, "drive":1.2, "cutoff":15000},
-            "Garage Sale Find": {"motor_health":1.5, "motor_drag":0.5, "belt_slip":4.0, "wow_hz":0.8, "wow_dep":3.5, "hiss":0.006, "hiss_grit":1800, "drive":2.5, "cutoff":6500},
-            "Sun-Warped Reel": {"motor_health":0.2, "motor_drag":0.0, "belt_slip":0.1, "wow_hz":0.1, "wow_dep":18.0, "hiss":0.001, "hiss_grit":4000, "drive":1.5, "cutoff":14000},
-            "Basement Flood (Moldy)": {"motor_health":0.5, "motor_drag":0.2, "belt_slip":1.0, "wow_hz":0.3, "wow_dep":2.0, "hiss":0.015, "hiss_grit":500, "drive":5.0, "cutoff":1800},
-            "Sand in the Gears": {"motor_health":6.0, "motor_drag":1.0, "belt_slip":12.0, "wow_hz":15.0, "wow_dep":5.0, "hiss":0.02, "hiss_grit":2500, "drive":1.2, "cutoff":10000},
-            "Burned Motor": {"motor_health":8.0, "motor_drag":3.5, "belt_slip":2.0, "wow_hz":0.2, "wow_dep":5.0, "hiss":0.004, "hiss_grit":2500, "drive":3.0, "cutoff":8000},
-            "Melted Plastic": {"motor_health":0.1, "motor_drag":0.0, "belt_slip":0.1, "wow_hz":0.05, "wow_dep":45.0, "hiss":0.008, "hiss_grit":1200, "drive":8.0, "cutoff":1200},
-            "End of Life": {"motor_health":10.0, "motor_drag":1.2, "belt_slip":15.0, "wow_hz":6.0, "wow_dep":30.0, "hiss":0.009, "hiss_grit":800, "drive":10.0, "cutoff":2500},
+            "Walkman (Low Battery)": {"motor_health":1.5, "motor_drag":0.35, "belt_slip":1.2, "wow_hz":0.4, "wow_dep":3.5, "hiss":0.005, "hiss_grit":2800, "drive":1.8, "cutoff":9000},
+            "End of Life": {"motor_health":10.0, "motor_drag":0.95, "belt_slip":15.0, "wow_hz":6.0, "wow_dep":30.0, "hiss":0.009, "hiss_grit":800, "drive":10.0, "cutoff":2500},
         }
         if name in p:
             for k, v in p[name].items(): self.controls[k].set(v)
@@ -165,7 +149,7 @@ class ForensicTapeStudio:
     def load_file(self):
         path = filedialog.askopenfilename(filetypes=[("Audio", "*.opus *.wav *.mp3 *.ogg")])
         if not path: return
-        self.lbl_file.config(text="ANALYZING MAGNETIC STRIP...", fg="orange")
+        self.lbl_file.config(text="LOADING MAGNETIC DATA...", fg="orange")
         def _load():
             try:
                 audio = AudioSegment.from_file(path).set_frame_rate(44100).set_channels(2).set_sample_width(2)
@@ -177,111 +161,112 @@ class ForensicTapeStudio:
                     self.play_head = 0.0
                     self.current_time = 0.0
                     self.current_motor_speed = 1.0
-                    self.belt_slip_state = 0.0
+                    self.belt_slip_val = 0.0
                 self.root.after(0, lambda: [self.btn_play.config(state="normal"), self.btn_export.config(state="normal"),
-                                           self.lbl_file.config(text=f"TAPE LOADED: {os.path.basename(path)}", fg="#00ff00")])
-            except Exception as e: self.root.after(0, lambda: messagebox.showerror("Hardware Error", str(e)))
+                                           self.lbl_file.config(text=f"TAPE READY: {os.path.basename(path)}", fg="#00ff00")])
+            except Exception as e: self.root.after(0, lambda: messagebox.showerror("System Error", str(e)))
         threading.Thread(target=_load, daemon=True).start()
 
     def dsp_process(self, frames):
-        """Core Physics Engine: Models Torque and Friction recovery.
-        Robust to EOS: returns a buffer of length `frames` (pads zeros at end) and updates internal state.
-        """
+        """Polished Physics Engine: Sample-accurate speed transitions to prevent clicks."""
         with self.lock:
             if self.audio_data is None:
                 return None
-            if self.play_head >= self.total_samples:
+
+            # Hard EOF stop for both realtime and offline render
+            if self.play_head >= self.total_samples - 2:
+                self.is_playing = False
                 return None
 
-            # controls snapshot
             c = {k: v.get() for k, v in self.controls.items()}
             
-            # 1. Target Velocity Logic (The Fix for permanent slowdown)
-            target_speed = 1.0 - c['motor_drag']
-            speed_diff = target_speed - self.current_motor_speed
-            self.current_motor_speed += speed_diff * 0.0005 
+            # --- Vectorized Physics Generation ---
+            # 1. Torque & Inertia: Smoothly move current_motor_speed toward target
+            target_base = 1.0 - c['motor_drag']
+            inertia = 0.0005 
             
-            # 2. Voltage Fluctuations (Surge)
-            surge = (c['motor_health'] / 250.0) * np.random.normal(0, 1.0, size=frames)
-            
-            # 3. Belt Slippage (Temporary dip that recovers)
+            # 2. Voltage Surge: Smoothed jitter (Flutter)
+            raw_surge = np.random.normal(0, 1.0, size=frames)
+            # Use 1-pole filter to keep jitter organic and click-free
+            surge_samples = np.zeros(frames)
+            for i in range(frames):
+                self.surge_state += (raw_surge[i] - self.surge_state) * 0.01
+                surge_samples[i] = self.surge_state * (c['motor_health'] / 180.0)
+
+            # 3. Belt Slip: Trigger based on probability
             if np.random.random() < (c['belt_slip'] / 1500.0):
-                self.belt_slip_state = - (c['belt_slip'] / 50.0)
-            self.belt_slip_state *= 0.992 # Belt friction regains grip
-            
-            # 4. Mechanical Wow
-            t = self.current_time + np.arange(frames) / 44100.0
-            wow = (c['wow_dep'] / 150.0) * np.sin(2 * np.pi * c['wow_hz'] * t)
-            
-            # final_speed per output frame (array)
-            base_speed = self.current_motor_speed + (surge if surge.shape[0] == frames else np.full(frames, surge))
-            final_speed = base_speed + self.belt_slip_state + wow
-            final_speed = np.clip(final_speed, 0.02, 3.0)
-            
-            # read positions (floating indices into source samples)
-            read_indices = self.play_head + np.cumsum(final_speed)
-            
-            # if all requested read indices are beyond EOF — nothing to render
-            if read_indices[0] >= self.total_samples:
-                return None
+                self.belt_slip_target = - (c['belt_slip'] / 40.0)
+            else:
+                if not hasattr(self, 'belt_slip_target'): self.belt_slip_target = 0.0
+                self.belt_slip_target *= 0.995 # Recovery decay
 
-            # determine how many frames actually map inside the source
+            # 4. Composite Speed Array (Sample-accurate)
+            t_arr = self.current_time + np.arange(frames) / 44100.0
+            wow_arr = (c['wow_dep'] / 150.0) * np.sin(2 * np.pi * c['wow_hz'] * t_arr)
+            
+            final_speeds = np.zeros(frames)
+            for i in range(frames):
+                # Smooth speed transitions prevent click artifacts
+                self.current_motor_speed += (target_base - self.current_motor_speed) * inertia
+                self.belt_slip_val += (self.belt_slip_target - self.belt_slip_val) * 0.05
+                final_speeds[i] = self.current_motor_speed + surge_samples[i] + self.belt_slip_val + wow_arr[i]
+            
+            final_speeds = np.clip(final_speeds, 0.01, 3.0)
+            # Continuous fractional phase integration (click-free)
+            read_indices = self.play_head + np.cumsum(final_speeds) - final_speeds[0]
+
+            
+            # EOF Handling
+            if read_indices[0] >= self.total_samples - 2:
+                self.is_playing = False
+                return None
             valid_mask = read_indices < self.total_samples
-            if not valid_mask.any():
-                return None
-            n_valid = int(np.nonzero(valid_mask)[0][-1]) + 1  # number of valid frames
-
-            # Prepare output buffer (frames x 2), initialize zeros (will pad automatically)
+            n_valid = int(np.nonzero(valid_mask)[0][-1]) + 1 if valid_mask.any() else 0
+            if n_valid == 0: return None
+            
+            # Audio Fetch & Interp (phase-stable)
             out = np.zeros((frames, 2), dtype=np.float32)
 
-            # choose a safe local window from source for interpolation
-            rmin = max(0, int(np.floor(read_indices[:n_valid].min())) - 5)
-            rmax = min(self.total_samples, int(np.ceil(read_indices[:n_valid].max())) + 5)
-            local_indices = np.arange(rmin, rmax)
-            local_data = self.audio_data[rmin:rmax]
+            global_idx = np.arange(self.total_samples)
 
-            # interpolate valid portion
-            out_valid = np.zeros((n_valid, 2), dtype=np.float32)
-            out_valid[:, 0] = np.interp(read_indices[:n_valid], local_indices, local_data[:, 0])
-            out_valid[:, 1] = np.interp(read_indices[:n_valid], local_indices, local_data[:, 1])
+            out_v = np.zeros((n_valid, 2), dtype=np.float32)
+            out_v[:, 0] = np.interp(read_indices[:n_valid], global_idx, self.audio_data[:, 0])
+            out_v[:, 1] = np.interp(read_indices[:n_valid], global_idx, self.audio_data[:, 1])
 
-            # --- Electronics: Saturation & Noise (apply only to valid frames) ---
-            proc = np.tanh(out_valid * c['drive']) / (c['drive'] * 0.1 + 0.9)
-
+            # Processing valid portion
+            proc = np.tanh(out_v * c['drive']) / (c['drive'] * 0.1 + 0.9)
+            
+            # Filtered Noise
             raw_hiss = np.random.normal(0, c['hiss'], (n_valid, 2))
-            b_h, a_h = butter(1, max(0.0001, c['hiss_grit']/22050), btype='low')
-            if self.hiss_zi is None:
-                self.hiss_zi = np.zeros((max(len(a_h), len(b_h)) - 1, 2))
+            b_h, a_h = butter(1, max(0.001, c['hiss_grit']/22050), btype='low')
+            if self.hiss_zi is None or self.hiss_zi.shape[0] != len(a_h)-1:
+                self.hiss_zi = np.zeros((len(a_h)-1, 2))
             hiss_f, self.hiss_zi = lfilter(b_h, a_h, raw_hiss, axis=0, zi=self.hiss_zi)
             proc += hiss_f * (np.abs(proc) * 0.2 + 0.8)
 
+            # High Cut
             if c['cutoff'] < 19800:
-                b, a = butter(2, max(0.0001, c['cutoff']/22050), btype='low')
-                if self.filter_zi is None:
-                    self.filter_zi = np.zeros((max(len(a), len(b)) - 1, 2))
+                b, a = butter(2, max(0.001, c['cutoff']/22050), btype='low')
+                if self.filter_zi is None or self.filter_zi.shape[0] != len(a)-1:
+                    self.filter_zi = np.zeros((len(a)-1, 2))
                 proc, self.filter_zi = lfilter(b, a, proc, axis=0, zi=self.filter_zi)
 
-            # place processed valid frames into full buffer
-            out[:n_valid] = proc
-
-            # advance the play_head to the last read position we used
-            self.play_head = float(read_indices[n_valid - 1])
-            # advance current_time by the nominal requested duration (keeps wow phasing consistent)
-            self.current_time += frames / 44100.0
-
-            # if we reached EOF within this block, mark playback finished so streaming callback will stop next cycle
+            # End of file smoothing (Anti-click fade)
             if n_valid < frames:
+                fade_len = min(n_valid, 100)
+                proc[n_valid-fade_len:n_valid] *= np.linspace(1, 0, fade_len)[:, None]
                 self.is_playing = False
 
+            out[:n_valid] = proc
+            self.play_head = float(read_indices[n_valid - 1])
+            self.current_time += frames / 44100.0
             return np.clip(out, -1.0, 1.0)
 
     def audio_callback(self, outdata, frames, time_info, status):
-        if not self.is_playing:
-            raise sd.CallbackStop
+        if not self.is_playing: raise sd.CallbackStop
         processed = self.dsp_process(frames)
-        if processed is None:
+        if processed is None: 
             self.is_playing = False
-            # provide silence for the remainder and stop streaming
             outdata.fill(0)
             raise sd.CallbackStop
         outdata[:] = processed
@@ -298,49 +283,35 @@ class ForensicTapeStudio:
             self.btn_play.config(text="[ STOP ENGINE ]")
 
     def export_audio(self):
-        """Fixed Export System: Chunked render that correctly renders physics to file"""
         path = filedialog.asksaveasfilename(defaultextension=".wav", filetypes=[("WAV", "*.wav")])
         if not path: return
         self.btn_export.config(text="RENDERING...", state="disabled")
-        
         def _export():
-            # Save and reset internal state for a clean render pass
             with self.lock:
                 old_h, old_t, old_s = self.play_head, self.current_time, self.current_motor_speed
-                old_filter_zi, old_hiss_zi = self.filter_zi, self.hiss_zi
                 self.play_head = 0.0; self.current_time = 0.0; self.current_motor_speed = 1.0
                 self.filter_zi = None; self.hiss_zi = None
+                self.surge_state = 0.0; self.belt_slip_val = 0.0
+                self.is_playing = True
 
-            # Render in manageable chunks and accumulate
             rendered_chunks = []
-            chunk_frames = 44100 * 4  # 4-second chunks
-            total_out = 0
+            chunk_frames = 44100 * 2 # Process in 2s chunks
             while True:
                 chunk = self.dsp_process(chunk_frames)
-                if chunk is None:
-                    break
+                if chunk is None: break
                 rendered_chunks.append(chunk)
-                total_out += chunk.shape[0]
-                # update progress on UI
-                if self.total_samples > 0:
-                    progress = min(1.0, total_out / float(self.total_samples))
-                    self.root.after(0, lambda p=progress: self.btn_export.config(text=f"RENDERING... {p*100:.1f}%"))
-            # Restore playback state
+                progress = (self.play_head / self.total_samples) * 100 if self.total_samples > 0 else 0
+                self.root.after(0, lambda p=progress: self.btn_export.config(text=f"RENDERING {p:.1f}%"))
+
             with self.lock:
                 self.play_head, self.current_time, self.current_motor_speed = old_h, old_t, old_s
-                self.filter_zi, self.hiss_zi = old_filter_zi, old_hiss_zi
 
             if rendered_chunks:
                 out = np.vstack(rendered_chunks)
-                out = np.clip(out, -1.0, 1.0)
-                out_int = (out * 32767.0).astype(np.int16)
+                out_int = (np.clip(out, -1.0, 1.0) * 32767.0).astype(np.int16)
                 AudioSegment(out_int.tobytes(), frame_rate=44100, sample_width=2, channels=2).export(path, format="wav")
-                self.root.after(0, lambda: messagebox.showinfo("Success", f"Tape physics rendered to:\n{os.path.basename(path)}"))
-            else:
-                self.root.after(0, lambda: messagebox.showwarning("Render", "No audio was rendered (source may be empty)."))
-
+                self.root.after(0, lambda: messagebox.showinfo("Success", "Tape Rendered."))
             self.root.after(0, lambda: self.btn_export.config(text="[ BOUNCE TO DISK ]", state="normal"))
-            
         threading.Thread(target=_export, daemon=True).start()
 
 if __name__ == "__main__":
