@@ -39,6 +39,9 @@ class TransportDynamics:
         self.surge_state         = 0.0
         self.sticky_drag         = 0.0
         self.last_instant_speed  = 1.0
+        self.last_conflict        = 0.0
+        self.dropout_count        = 0
+        self.last_dropout_time    = -999.0
 
         self._roller_phase = np.random.uniform(0, 2 * np.pi)
         self._roller_ecc   = np.random.uniform(0.0002, 0.0008)
@@ -46,7 +49,7 @@ class TransportDynamics:
         self._tension_arm  = 0.5
         self._tension_vel  = 0.0
 
-        self._next_dropout  = self._schedule_dropout()
+        self._next_dropout  = 0.0   # fire immediately on first block, schedule from there
         self._dropout_timer = 0.0
 
     def reset(self):
@@ -56,11 +59,16 @@ class TransportDynamics:
         self.last_instant_speed  = 1.0
         self._tension_arm        = 0.5
         self._tension_vel        = 0.0
-        self._next_dropout       = self._schedule_dropout()
+        self._next_dropout       = 0.0
         self._dropout_timer      = 0.0
+        self.dropout_count       = 0
+        self.last_dropout_time   = -999.0
 
-    def _schedule_dropout(self):
-        return np.random.exponential(scale=30.0)
+    def _schedule_dropout(self, rate=0.1):
+        # Mean interval shrinks as rate increases:
+        # rate=0.01 → avg every ~100s,  rate=1.0 → avg every ~1s
+        mean_interval = max(0.3, 8.0 / max(rate, 0.001))
+        return np.random.exponential(scale=mean_interval)
 
     def _reel_inertia(self, progress):
         """
@@ -113,7 +121,13 @@ class TransportDynamics:
         drag       = params.get('motor_drag', 0.0)
 
         # Sticky shed builds up cumulative drag
-        self.sticky_drag += params.get('sticky_shed', 0.0) * 0.00001
+        # Sticky drag approaches a maximum determined by sticky_shed intensity.
+        # Cap at 0.015 to prevent the azimuth cutoff going negative (which causes
+        # coefficient changes every block → pops). The electronics module uses
+        # (1 - sticky_drag * 50), so 0.02 = complete blockage; we stay just under.
+        shed = params.get('sticky_shed', 0.0)
+        target_sticky = shed * 0.015          # max drag at full shed = 0.015
+        self.sticky_drag += (target_sticky - self.sticky_drag) * 0.0002
 
         # Back-tension from take-up reel (increases as reel fills)
         back_tension = (takeup_r / self.REEL_RADIUS_FULL) * params.get('tension_load', 0.05) * 0.5
@@ -126,8 +140,41 @@ class TransportDynamics:
         self._tension_arm  = np.clip(self._tension_arm + self._tension_vel * (frames / SR), 0, 1)
         tension_mod        = self._tension_arm * params.get('tension_load', 0.05)
 
-        target_speed = 1.0 + boost - drag - tension_mod - self.sticky_drag
-        target_speed = max(0.05, target_speed)
+        # --- Fighting speed conflict ----------------------------------------
+        # When both motor_boost and motor_drag are active simultaneously,
+        # the competing forces create mechanical instability: stick-slip lurches,
+        # rapid irregular speed oscillation, and amplitude modulation from
+        # alternating tape tension.
+        conflict = min(boost, drag)           # the overlapping fighting force
+        if conflict > 0.05:
+            # Stick-slip: random lurches — occasional speed spikes and drops
+            if not hasattr(self, '_fight_phase'):
+                self._fight_phase = 0.0
+                self._fight_lurch_timer = 0.0
+                self._fight_lurch_mag = 0.0
+
+            # Irregular fast oscillation — 2-8 Hz, amplitude scales with conflict
+            fight_freq = 3.5 + np.sin(self._fight_phase * 0.3) * 2.0
+            self._fight_phase += fight_freq * frames / SR
+            fight_osc = np.sin(self._fight_phase) * conflict * 0.4
+
+            # Lurch events: periodic sudden speed jumps
+            self._fight_lurch_timer += frames / SR
+            lurch_interval = max(0.3, 1.5 / (conflict + 0.1))
+            if self._fight_lurch_timer > lurch_interval:
+                self._fight_lurch_mag = np.random.choice([-1, 1]) * conflict * 0.8
+                self._fight_lurch_timer = 0.0
+            # Decay the lurch
+            self._fight_lurch_mag *= 0.85 ** (frames / (SR * 0.1))
+        else:
+            fight_osc = 0.0
+            if hasattr(self, '_fight_lurch_mag'):
+                self._fight_lurch_mag = 0.0
+
+        lurch_add = getattr(self, '_fight_lurch_mag', 0.0)
+
+        target_speed = 1.0 + boost - drag - tension_mod - self.sticky_drag + fight_osc + lurch_add
+        target_speed = max(0.02, target_speed)
 
         # --- Oscillations (wow/flutter) -------------------------------------
         roller_radius  = 0.025
@@ -143,9 +190,10 @@ class TransportDynamics:
         flutter        = flutter_base * np.sin(2 * np.pi * 15.0 * t_arr)
         flutter       += flutter_base * 0.3 * np.sin(2 * np.pi * 7.3 * t_arr + 0.7)
 
-        scrape_freq    = np.clip(3200.0 * (ips / 15.0), 800, 12000)
-        scrape         = (params.get('scrape_flutter', 0.1) / 800.0) \
-                         * np.sin(2 * np.pi * scrape_freq * t_arr)
+        # Scrape flutter is NOT modelled as a speed variation — it's a direct
+        # amplitude/phase modulation applied to the audio signal in the engine.
+        # Keeping a zero array here for the speed assembly loop below.
+        scrape         = np.zeros(frames)
 
         # --- Brownian voltage drift -----------------------------------------
         raw_noise   = np.random.normal(0, 0.01, size=frames)
@@ -156,23 +204,37 @@ class TransportDynamics:
             drift_array[i]    = self.surge_state
 
         # --- Dropout events -------------------------------------------------
+        # dropout_mask is applied to the AUDIO signal in dsp_process.
+        # Rate controls frequency: rate=0.1 → ~1 event/80s, rate=1.0 → ~1/8s.
         dropout_mask        = np.ones(frames)
+        rate                = params.get('dropout_rate', 0.0)
         self._dropout_timer += frames / SR
-        if params.get('dropout_rate', 0.0) > 0:
-            while self._dropout_timer > self._next_dropout:
-                evt_pos  = int((self._dropout_timer - self._next_dropout) * SR)
-                dur_samp = int(np.random.uniform(0.002, 0.020) * SR)
-                depth    = np.random.uniform(0.3, 1.0) * params.get('dropout_rate', 0.0)
-                s = max(0, frames - evt_pos)
-                e = min(frames, s + dur_samp)
+        if rate > 0:
+            while self._dropout_timer >= self._next_dropout:
+                # How far into the past did this event fire?
+                # overshoot=0 → event fires right at start of block (s=0)
+                # overshoot large → event fired long ago, already past this block
+                overshoot = self._dropout_timer - self._next_dropout
+                s = int(np.clip(overshoot * SR, 0, frames - 1))
+                # Duration: 1ms–20ms, longer at higher rates (more binder damage)
+                max_dur  = 0.005 + rate * 0.040
+                dur_samp = int(np.random.uniform(0.001, max_dur) * SR)
+                e        = min(frames, s + dur_samp)
+                # Depth: always near-complete silence (real dropouts kill the signal)
+                depth    = np.random.uniform(0.7, 1.0) * np.clip(rate, 0, 1)
                 if s < e:
-                    env = np.ones(e - s)
-                    fade = min(20, (e - s) // 2)
-                    env[:fade]    *= np.linspace(1, 1 - depth, fade)
-                    env[-fade:]   *= np.linspace(1 - depth, 1, fade)
-                    env[fade:-fade] *= (1 - depth)
-                    dropout_mask[s:e] = env
-                self._next_dropout += self._schedule_dropout()
+                    seg_len = e - s
+                    env     = np.ones(seg_len)
+                    fade    = min(32, seg_len // 3)
+                    if fade > 0:
+                        env[:fade]  = np.linspace(1.0, 1.0 - depth, fade)
+                        env[-fade:] = np.linspace(1.0 - depth, 1.0, fade)
+                    if seg_len > 2 * fade:
+                        env[fade:-fade] = 1.0 - depth
+                    dropout_mask[s:e] = np.minimum(dropout_mask[s:e], env)
+                    self.last_dropout_time = self._dropout_timer
+                    self.dropout_count    += 1
+                self._next_dropout += self._schedule_dropout(rate)
 
         # --- Assemble final speed array -------------------------------------
         # Motor speed approaches target_speed with inertia-based lag
@@ -187,6 +249,8 @@ class TransportDynamics:
                      + drift_array[i])
             final_speeds[i] = max(0.01, speed)
 
-        final_speeds          *= dropout_mask
         self.last_instant_speed = final_speeds[-1]
-        return final_speeds, self.sticky_drag
+        self.last_ips           = float(ips)
+        self.last_conflict       = float(min(
+            params.get('motor_boost', 0.0), params.get('motor_drag', 0.0)))
+        return final_speeds, self.sticky_drag, dropout_mask
