@@ -393,13 +393,18 @@ class ForensicTapeStudio:
         self.render_bit_depth    = tk.IntVar(value=24)
         self.render_sim_quality  = tk.StringVar(value="High")
         self.render_oversample   = tk.IntVar(value=1)
-        self.render_dither       = tk.BooleanVar(value=True)
-        self.render_dc_block     = tk.BooleanVar(value=True)
-        self.render_normalize    = tk.BooleanVar(value=False)
-        self.render_output_path  = tk.StringVar(value="")
+        self.render_dither         = tk.BooleanVar(value=True)
+        self.render_dc_block       = tk.BooleanVar(value=True)
+        self.render_normalize      = tk.BooleanVar(value=True)
+        self.render_match_loudness = tk.BooleanVar(value=False)
+        self.render_direction      = tk.StringVar(value="forward")
+        self.render_output_path    = tk.StringVar(value="")
+        self.render_threads        = tk.IntVar(value=1)
 
+        self._closing = False
         self._setup_styles()
         self.setup_gui()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         log_ui.info("Applying default preset: Master Studio Reel (30ips)")
         self.apply_builtin_preset("Master Studio Reel (30ips)")
         self.update_telemetry()
@@ -511,10 +516,56 @@ class ForensicTapeStudio:
                  fg=C["grey_lt"], font=("Consolas", 9)).pack(side="left")
         self.preset_var = tk.StringVar()
         presets = [
-            "Master Studio Reel (30ips)", "Standard Tape (15ips)",
-            "Consumer Cassette (1.875ips)", "Chrome Cassette (1.875ips)",
-            "Metal Tape (1.875ips)", "VHS Linear Audio",
-            "Sticky Shed Disaster", "Abandoned Attic Find", "Demagnetised Archive",
+            # ── Studio / Pro ──────────────────────────────────────────────────
+            "Ampex 456 (30ips)",  "Ampex 456 (15ips)",
+            "Studer A820 (30ips)", "Studer A820 (15ips)",
+            "Otari MTR-90 (30ips)", "Otari MTR-90 (15ips)",
+            "MCI JH-24 (30ips)",
+            "Scotch 226 (7.5ips)",
+            "Revox B77 (7.5ips)", "Revox B77 (3.75ips)",
+            # ── Consumer reel ─────────────────────────────────────────────────
+            "BASF LH Super (7.5ips)",
+            "Maxell UD (7.5ips)",
+            "Tascam 38 (7.5ips)",
+            # ── Multitrack ────────────────────────────────────────────────────
+            "4-Track Portastudio (1.875ips)",
+            "8-Track Cartridge",
+            # ── Cassette ──────────────────────────────────────────────────────
+            "Type I (Fe2O3) Normal",
+            "Type II Chrome (CrO2)",
+            "Type IV Metal",
+            "Dolby B (Type I)",
+            "Dolby C (Type II)",
+            "Lo-Fi Bedroom (Type I)",
+            # ── Video / Broadcast ─────────────────────────────────────────────
+            "VHS Linear Audio",
+            "Betamax Audio",
+            "U-Matic Low Band",
+            # ── Damaged / Warped ──────────────────────────────────────────────
+            "Sticky Shed Syndrome",
+            "Baked Tape (Post-Oven)",
+            "Mouldy Attic Find",
+            "Dropout Disaster",
+            "Heavily Demagnetised",
+            "Warped & Fighting Motors",
+            "Chewed Tape",
+            "Print-Through Ghost",
+            "Stretched Tape",
+            "Heat Warped",
+            "Spliced Archive",
+            "Soviet ORWO Copy",
+            # ── Radio / Broadcast ─────────────────────────────────────────────
+            "BBC Radiophonic (7.5ips)",
+            "AM Radio Dub",
+            # ── Lo-Fi / Special ───────────────────────────────────────────────
+            "Ghetto Blaster",
+            "Answering Machine",
+            "Handheld Dictaphone",
+            "Toy Piano Recording",
+            # ── More Damaged ──────────────────────────────────────────────────
+            "Tsunami Flood Tape",
+            "Fire-Damaged Archive",
+            "Played 1000 Times",
         ]
         cb = ttk.Combobox(top_bar, textvariable=self.preset_var, values=presets,
                           state="readonly", width=28)
@@ -723,7 +774,8 @@ class ForensicTapeStudio:
             win.destroy()
             self._run_render(path, self.render_sample_rate.get(),
                              self.render_bit_depth.get(),
-                             self.render_sim_quality.get())
+                             self.render_sim_quality.get(),
+                             self.render_direction.get())
 
         self._btn(btn_row, "CANCEL", win.destroy,
                   bg=C["bg3"], fg=C["grey_lt"], font=("Consolas", 11)).pack(side="left", padx=16)
@@ -741,7 +793,12 @@ class ForensicTapeStudio:
         sf = tk.Frame(canvas, bg=C["bg"])
         sf_id = canvas.create_window((0, 0), window=sf, anchor="nw")
         canvas.bind("<Configure>", lambda e: canvas.itemconfig(sf_id, width=e.width))
-        sf.bind("<Configure>",     lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+        def _update_scroll(e=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        sf.bind("<Configure>", _update_scroll)
+        # Force scrollregion update after all widgets are drawn
+        win.after(50, _update_scroll)
 
         def _wheel(e):
             canvas.yview_scroll(int(-1 * (e.delta / 120 or e.num == 4 and -1 or 1)), "units")
@@ -849,9 +906,29 @@ class ForensicTapeStudio:
 
         # ── SIMULATION OPTIONS ────────────────────────────────────────────────
         section("SIMULATION OPTIONS")
-        check_row(self.render_dither,    "Apply TPDF dither before bit-truncation  (recommended for 16/24-bit)")
-        check_row(self.render_dc_block,  "DC blocking — remove low-frequency offset accumulated by DSP chain")
-        check_row(self.render_normalize, "Peak normalize output to −0.1 dBFS after processing")
+        label_row("Render Direction")
+        radio_group(self.render_direction, [
+            ("forward", "Forward  ▶"),
+            ("reverse", "Reverse  ◀  (bake reverse into file)"),
+        ], cols=2)
+
+        check_row(self.render_dither,         "Apply TPDF dither before bit-truncation  (recommended for 16/24-bit)")
+        check_row(self.render_dc_block,       "DC blocking — remove low-frequency offset accumulated by DSP chain")
+        check_row(self.render_normalize,      "Peak normalize to −0.1 dBFS  (recommended — tape compression reduces level)")
+        check_row(self.render_match_loudness, "RMS loudness match — match output loudness to input source level")
+
+        # ── PERFORMANCE ───────────────────────────────────────────────────────
+        section("PERFORMANCE  (experimental)")
+        label_row("Render Threads  —  splits audio into parallel chunks, one per thread")
+        radio_group(self.render_threads, [
+            (1, "1 thread  (default)"),
+            (2, "2 threads"),
+            (4, "4 threads"),
+            (8, "8 threads"),
+        ], cols=4)
+        tk.Label(sf, text="  ⚠  Parallel threads may introduce subtle level discontinuities at chunk boundaries.",
+                 bg=C["bg"], fg=C["orange"], font=("Consolas", 8),
+                 anchor="w", padx=20, pady=2).pack(fill="x")
 
         # ── OUTPUT FILE ───────────────────────────────────────────────────────
         section("OUTPUT FILE")
@@ -874,11 +951,12 @@ class ForensicTapeStudio:
         tk.Frame(sf, bg=C["bg"], height=12).pack()   # bottom padding
 
 
-    def _run_render(self, path, sample_rate, bit_depth, sim_quality):
+    def _run_render(self, path, sample_rate, bit_depth, sim_quality, direction="forward"):
         log_render.info(f"Starting render → {path}")
         log_render.info(f"  Sample rate : {sample_rate} Hz")
         log_render.info(f"  Bit depth   : {bit_depth}-bit")
         log_render.info(f"  Sim quality : {sim_quality}")
+        log_render.info(f"  Direction   : {direction}")
 
         # Quality → block size, oversampling, and feature flags
         quality_settings = {
@@ -893,10 +971,12 @@ class ForensicTapeStudio:
         qs = quality_settings.get(sim_quality, quality_settings["High"])
         block_size  = qs["block"]
         oversample  = qs["oversample"]
-        do_dither   = self.render_dither.get()
-        do_dc_block = self.render_dc_block.get()
-        do_norm     = self.render_normalize.get()
-        log_render.debug(f"Block size: {block_size}  Oversample: {oversample}×")
+        n_threads   = self.render_threads.get()
+        do_dither         = self.render_dither.get()
+        do_dc_block       = self.render_dc_block.get()
+        do_norm           = self.render_normalize.get()
+        do_match_loudness = self.render_match_loudness.get()
+        log_render.debug(f"Block size: {block_size}  Oversample: {oversample}×  Threads: {n_threads}")
         log_render.debug(f"Dither: {do_dither}  DC-block: {do_dc_block}  Normalize: {do_norm}")
 
         # Stop playback and wait for threads
@@ -908,19 +988,26 @@ class ForensicTapeStudio:
             log_render.info("Waiting for playback threads to exit…")
             time.sleep(0.15)
 
-            if self.engine.is_reversed:
-                log_render.debug("Audio was reversed — restoring forward orientation")
-                self.engine.set_reverse(False)
+            want_reverse = (direction == "reverse")
+            log_render.debug(f"Setting render direction: {'reverse' if want_reverse else 'forward'}")
+            self.engine.set_reverse(want_reverse, force_reset=True)
+
+            saved_bark  = self.engine.params.get("barkhausen", 0.0)
+            saved_print = self.engine.params.get("print_through", 0.0)
 
             # Override sim-quality params if needed
-            saved_bark   = self.engine.params.get("barkhausen", 0.0)
-            saved_print  = self.engine.params.get("print_through", 0.0)
             if not qs["barkhausen"]:
                 self.engine.params["barkhausen"] = 0.0
                 log_render.debug("Draft: barkhausen disabled")
             if not qs["print_through"]:
                 self.engine.params["print_through"] = 0.0
                 log_render.debug("Draft/Standard: print-through disabled")
+
+            if do_match_loudness and self.engine.audio_data is not None:
+                src_rms = float(np.sqrt(np.mean(self.engine.audio_data.astype(np.float64)**2)))
+                log_render.debug(f"Source RMS: {src_rms:.5f}")
+            else:
+                src_rms = None
 
             with self.engine.lock:
                 self.engine.reset_state()
@@ -929,49 +1016,132 @@ class ForensicTapeStudio:
             log_render.info(f"Source: {total_samples} samples "
                             f"({total_samples/44100:.1f} s)")
 
-            chunks      = []
-            block_count = 0
-            t_start     = time.time()
-            last_log    = t_start
+            t_start = time.time()
 
-            while True:
-                block = self.engine.dsp_process(block_size, oversample=oversample)
-                if block is None:
-                    break
-                # Resample block if target SR differs from 44100
-                if sample_rate != 44100:
-                    from scipy.signal import resample_poly
-                    block = resample_poly(block, sample_rate, 44100, axis=0)
-                chunks.append(block)
-                block_count += 1
+            if n_threads <= 1:
+                # ── Single-threaded serial render ─────────────────────────────
+                chunks      = []
+                block_count = 0
+                last_log    = t_start
 
-                now = time.time()
-                if now - last_log >= 1.0:
-                    rendered_samps = block_count * block_size
-                    pct = min(100, rendered_samps / max(total_samples, 1) * 100)
-                    rt  = now - t_start
-                    spd = rendered_samps / 44100 / max(rt, 0.001)
-                    log_render.info(f"  {pct:5.1f}%  block {block_count}  "
-                                    f"elapsed {rt:.1f}s  ({spd:.1f}× realtime)")
-                    last_log = now
+                while True:
+                    block = self.engine.dsp_process(block_size, oversample=oversample)
+                    if block is None:
+                        break
+                    chunks.append(block.astype(np.float32))
+                    block_count += 1
+                    now = time.time()
+                    if now - last_log >= 1.0:
+                        rendered_samps = block_count * block_size
+                        pct = min(100, rendered_samps / max(total_samples, 1) * 100)
+                        spd = rendered_samps / 44100 / max(now - t_start, 0.001)
+                        log_render.info(f"  {pct:5.1f}%  block {block_count}  "
+                                        f"elapsed {now-t_start:.1f}s  ({spd:.1f}× realtime)")
+                        last_log = now
 
-            # Restore overridden params
-            self.engine.params["barkhausen"]    = saved_bark
-            self.engine.params["print_through"] = saved_print
+            else:
+                # ── Multi-threaded parallel render ────────────────────────────
+                # Strategy: divide the source into N equal slices, spin up N
+                # independent TapeEngine instances (each with own state), render
+                # each slice in parallel, then concatenate results in order.
+                #
+                # Each worker engine gets a copy of audio_data and params, but
+                # starts at the correct play_head offset for its slice.
+                # IIR state (replay_diff, demagnetisation, azimuth) is cold at
+                # each slice boundary — this is the noted discontinuity trade-off.
+                import copy
+                from concurrent.futures import ThreadPoolExecutor, as_completed
 
-            t_elapsed = time.time() - t_start
-            log_render.info(f"DSP complete: {block_count} blocks in {t_elapsed:.2f}s")
+                log_render.info(f"Multi-thread render: {n_threads} workers")
 
-            # ── Post-processing ──────────────────────────────────────────────
+                # Pre-compute how many blocks each worker renders
+                # Each worker gets a contiguous range of source samples
+                slice_samples = total_samples // n_threads
+
+                def render_slice(worker_id, start_sample, end_sample):
+                    """Render samples [start_sample, end_sample) on an independent engine."""
+                    from mod_transport  import TransportDynamics
+                    from mod_magnetic   import MagneticPath
+                    from mod_electronics import ElectronicComponents
+
+                    eng = TapeEngine()
+                    with self.engine.lock:
+                        eng.audio_data    = self.engine.audio_data          # shared read-only
+                        eng.total_samples = self.engine.total_samples
+                        eng.params        = dict(self.engine.params)        # shallow copy
+                        eng.is_reversed   = self.engine.is_reversed
+                    eng.play_head     = float(start_sample)
+                    eng.current_time  = float(start_sample) / 44100.0
+
+                    local_chunks = []
+                    while True:
+                        if eng.play_head >= end_sample:
+                            break
+                        block = eng.dsp_process(block_size, oversample=oversample)
+                        if block is None:
+                            break
+                        if eng.play_head > end_sample:
+                            # Trim overshoot on last block of this slice
+                            trim = int((eng.play_head - end_sample))
+                            block = block[:-trim] if trim < len(block) else block
+                        local_chunks.append(block.astype(np.float32))
+
+                    log_render.debug(f"Worker {worker_id}: "
+                                     f"{sum(len(c) for c in local_chunks)} samples")
+                    return worker_id, local_chunks
+
+                futures = {}
+                with ThreadPoolExecutor(max_workers=n_threads) as pool:
+                    for i in range(n_threads):
+                        s = i * slice_samples
+                        e = total_samples if i == n_threads - 1 else (i + 1) * slice_samples
+                        fut = pool.submit(render_slice, i, s, e)
+                        futures[fut] = i
+
+                # Collect results in order
+                results = {}
+                for fut in as_completed(futures):
+                    wid, wchunks = fut.result()
+                    results[wid] = wchunks
+                    pct = len(results) / n_threads * 100
+                    log_render.info(f"  Worker {wid} done — {pct:.0f}% of workers complete")
+
+                chunks = []
+                for i in range(n_threads):
+                    chunks.extend(results[i])
+                block_count = len(chunks)
+
+            t_elapsed_dsp = time.time() - t_start
+            log_render.info(f"DSP complete: {block_count} blocks in {t_elapsed_dsp:.2f}s")
+
+            # ── Assemble at native 44100 Hz, then convert SR as ONE operation ─
             out_arr = np.vstack(chunks).astype(np.float64)
+            log_render.info(f"Assembled: {len(out_arr)} samples at 44100 Hz "
+                            f"({len(out_arr)/44100:.2f}s)")
 
+            if sample_rate != 44100:
+                log_render.info(f"Resampling {44100} Hz → {sample_rate} Hz…")
+                from scipy.signal import resample_poly
+                import math
+                g = math.gcd(sample_rate, 44100)
+                out_arr = resample_poly(out_arr, sample_rate // g, 44100 // g, axis=0)
+                log_render.info(f"Resampled: {len(out_arr)} samples at {sample_rate} Hz "
+                                f"({len(out_arr)/sample_rate:.2f}s)")
+
+            # ── Post-processing ───────────────────────────────────────────────
             if do_dc_block:
                 log_render.debug("Applying DC blocking filter")
                 from scipy.signal import butter, lfilter
                 b_dc, a_dc = butter(1, 10.0 / (sample_rate / 2.0), btype="high")
                 out_arr = lfilter(b_dc, a_dc, out_arr, axis=0)
 
-            if do_norm:
+            if do_match_loudness and src_rms is not None:
+                out_rms = float(np.sqrt(np.mean(out_arr**2)))
+                if out_rms > 1e-6:
+                    gain = min(src_rms / out_rms, 10 ** (12/20))
+                    out_arr *= gain
+                    log_render.debug(f"Loudness match: gain={20*np.log10(gain):.1f}dB")
+            elif do_norm:
                 peak = np.max(np.abs(out_arr))
                 if peak > 0:
                     target = 10 ** (-0.1 / 20)
@@ -980,7 +1150,6 @@ class ForensicTapeStudio:
 
             if do_dither and bit_depth < 32:
                 log_render.debug(f"Applying TPDF dither for {bit_depth}-bit")
-                # TPDF: two uniform noise sources, peak = ±1 LSB
                 lsb = 1.0 / (2 ** (bit_depth - 1))
                 dither = (np.random.uniform(-lsb, lsb, out_arr.shape) +
                           np.random.uniform(-lsb, lsb, out_arr.shape))
@@ -996,22 +1165,34 @@ class ForensicTapeStudio:
                 AudioSegment(raw, frame_rate=sample_rate,
                              sample_width=4, channels=2).export(path, format="wav")
             elif bit_depth == 24:
-                try:
-                    from scipy.io import wavfile
-                    data_24 = (out_arr * 8388607).astype(np.int32)
-                    wavfile.write(path, sample_rate, data_24)
-                    log_render.debug("Wrote 24-bit via scipy.io.wavfile")
-                except Exception as e:
-                    log_render.warning(f"scipy 24-bit failed ({e}), falling back to 16-bit")
-                    data_16 = (out_arr * 32767).astype(np.int16)
-                    AudioSegment(data_16.tobytes(), frame_rate=sample_rate,
-                                 sample_width=2, channels=2).export(path, format="wav")
+                # Proper 24-bit PCM: pack each int32 value as 3 bytes little-endian
+                import struct, wave
+                data_24_int = np.clip(out_arr * 8388607, -8388608, 8388607).astype(np.int32)
+                # Pack as 3-byte little-endian signed integers
+                raw_24 = bytearray()
+                flat = data_24_int.flatten()
+                for s in flat:
+                    raw_24 += struct.pack("<i", int(s))[0:3]
+                with wave.open(path, 'wb') as wf:
+                    wf.setnchannels(2)
+                    wf.setsampwidth(3)      # 3 bytes = 24-bit
+                    wf.setframerate(sample_rate)
+                    wf.writeframes(bytes(raw_24))
+                log_render.debug("Wrote true 24-bit PCM via wave module")
             else:
                 data_16 = (out_arr * 32767).astype(np.int16)
                 AudioSegment(data_16.tobytes(), frame_rate=sample_rate,
                              sample_width=2, channels=2).export(path, format="wav")
 
             log_render.info(f"Render complete → {path}")
+
+            # Always restore overridden params and orientation
+            self.engine.params["barkhausen"]    = saved_bark
+            self.engine.params["print_through"] = saved_print
+            if want_reverse:
+                log_render.debug("Restoring forward orientation after reverse render")
+                self.engine.set_reverse(False, force_reset=True)
+
             self.root.after(0, lambda: [
                 messagebox.showinfo("Render Complete",
                                     f"✓  Saved to:\n{path}\n\n"
@@ -1024,68 +1205,489 @@ class ForensicTapeStudio:
     # ── Presets ──────────────────────────────────────────────────────────────────
     def apply_builtin_preset(self, name):
         log_ui.info(f"Applying preset: {name}")
+
+        # Default values matching ctrl() definitions — every preset starts here.
+        # This guarantees every control is explicitly set, no stale bleed-through.
+        DEFAULTS = {
+            "ips_base":       15.0,  "motor_health":  0.0,   "motor_drag":    0.0,
+            "motor_boost":    0.0,   "wow_dep":        0.0,   "flutter_dep":   0.0,
+            "scrape_flutter": 0.0,   "tension_load":   0.0,   "dropout_rate":  0.0,
+            "drive":          1.2,   "bias":           1.0,   "replay_diff":   0.3,
+            "asperities":     0.0,   "barkhausen":     0.0,   "crosstalk":     0.0,
+            "print_through":  0.0,   "demagnetization":0.0,   "oxide_shedding":0.0,
+            "hiss": 0.000000,   "hiss_color":     0.0,   "mains_hum":     0.0,
+            "cutoff_base":    22000, "head_bump":      0.0,   "azimuth_drift": 0.0,
+            "sticky_shed":    0.0,
+        }
+
+        # Hiss reference: measured noise floor → hiss param
+        #   −72 dBFS ≈ 0.000025  (finest studio)
+        #   −68 dBFS ≈ 0.000040  (good studio 30ips)
+        #   −62 dBFS ≈ 0.000079  (studio 15ips)
+        #   −56 dBFS ≈ 0.000158  (prosumer 7.5ips)
+        #   −52 dBFS ≈ 0.000251  (chrome cassette)
+        #   −48 dBFS ≈ 0.000398  (type I cassette)
+        #   −44 dBFS ≈ 0.000631  (Betamax / VHS good)
+        #   −40 dBFS ≈ 0.001000  (VHS worn)
+        #   −36 dBFS ≈ 0.001585  (damaged)
+
         p = {
-            "Master Studio Reel (30ips)": {
-                "ips_base": 30.0, "motor_health": 0.01, "wow_dep": 0.01,
-                "drive": 1.05, "hiss": 0.00005, "cutoff_base": 22000,
-                "head_bump": 0.2, "sticky_shed": 0.0, "print_through": 0.02,
-                "demagnetization": 0.0, "replay_diff": 0.3,
+            # ── Studio / Pro ──────────────────────────────────────────────────
+            "Ampex 456 (30ips)": {
+                "ips_base": 30.0, "motor_health": 0.02, "wow_dep": 0.008,
+                "flutter_dep": 0.005, "scrape_flutter": 0.04,
+                "drive": 1.05, "bias": 1.0,
+                "hiss": 0.000020, "hiss_color": 0.1, "cutoff_base": 22000,
+                "head_bump": 0.35, "print_through": 0.025, "replay_diff": 0.32,
+                "mains_hum": 0.000008, "barkhausen": 0.005, "asperities": 0.008,
             },
-            "Standard Tape (15ips)": {
-                "ips_base": 15.0, "motor_health": 0.1, "wow_dep": 0.05,
-                "drive": 1.2, "hiss": 0.0003, "cutoff_base": 18000,
-                "head_bump": 0.5, "print_through": 0.01, "replay_diff": 0.3,
+            "Ampex 456 (15ips)": {
+                "ips_base": 15.0, "motor_health": 0.05, "wow_dep": 0.02,
+                "flutter_dep": 0.008, "scrape_flutter": 0.05,
+                "drive": 1.1, "bias": 1.0,
+                "hiss": 0.000039, "hiss_color": 0.15, "cutoff_base": 20000,
+                "head_bump": 0.55, "print_through": 0.018, "replay_diff": 0.3,
+                "mains_hum": 0.000012, "barkhausen": 0.008, "asperities": 0.012,
             },
-            "Consumer Cassette (1.875ips)": {
-                "ips_base": 1.875, "motor_health": 0.8, "wow_dep": 1.2,
-                "drive": 2.5, "hiss": 0.004, "cutoff_base": 12000,
-                "crosstalk": 0.2, "head_bump": 1.5, "replay_diff": 0.2,
+            "Studer A820 (30ips)": {
+                "ips_base": 30.0, "motor_health": 0.01, "wow_dep": 0.005,
+                "flutter_dep": 0.003, "scrape_flutter": 0.03,
+                "drive": 1.02, "bias": 1.0,
+                "hiss": 0.000013, "hiss_color": 0.08, "cutoff_base": 22000,
+                "head_bump": 0.25, "print_through": 0.015, "replay_diff": 0.35,
+                "mains_hum": 0.000005, "barkhausen": 0.003, "asperities": 0.005,
             },
-            "Chrome Cassette (1.875ips)": {
-                "ips_base": 1.875, "motor_health": 0.5, "wow_dep": 0.8,
-                "drive": 1.8, "bias": 1.35, "hiss": 0.002, "cutoff_base": 15000,
-                "crosstalk": 0.1, "head_bump": 1.0, "replay_diff": 0.25,
+            "Studer A820 (15ips)": {
+                "ips_base": 15.0, "motor_health": 0.03, "wow_dep": 0.012,
+                "flutter_dep": 0.005, "scrape_flutter": 0.04,
+                "drive": 1.06, "bias": 1.0,
+                "hiss": 0.000025, "hiss_color": 0.1, "cutoff_base": 21000,
+                "head_bump": 0.45, "print_through": 0.012, "replay_diff": 0.32,
+                "mains_hum": 0.000008, "barkhausen": 0.005, "asperities": 0.008,
             },
-            "Metal Tape (1.875ips)": {
-                "ips_base": 1.875, "motor_health": 0.3, "wow_dep": 0.5,
-                "drive": 1.5, "bias": 1.7, "hiss": 0.0008, "cutoff_base": 18000,
-                "crosstalk": 0.05, "head_bump": 0.8, "replay_diff": 0.3,
+            "Otari MTR-90 (30ips)": {
+                "ips_base": 30.0, "motor_health": 0.015, "wow_dep": 0.006,
+                "flutter_dep": 0.004, "scrape_flutter": 0.035,
+                "drive": 1.04, "bias": 1.0,
+                "hiss": 0.000016, "hiss_color": 0.09, "cutoff_base": 22000,
+                "head_bump": 0.3, "print_through": 0.018, "replay_diff": 0.33,
+                "mains_hum": 0.000006, "barkhausen": 0.004, "asperities": 0.006,
             },
-            "Sticky Shed Disaster": {
-                "ips_base": 7.5, "sticky_shed": 1.0, "motor_health": 3.0,
-                "wow_dep": 5.0, "cutoff_base": 4000, "hiss": 0.01,
-                "dropout_rate": 0.4, "oxide_shedding": 0.5,
+            "Otari MTR-90 (15ips)": {
+                "ips_base": 15.0, "motor_health": 0.04, "wow_dep": 0.015,
+                "flutter_dep": 0.006, "scrape_flutter": 0.045,
+                "drive": 1.08, "bias": 1.0,
+                "hiss": 0.000031, "hiss_color": 0.12, "cutoff_base": 20500,
+                "head_bump": 0.5, "print_through": 0.014, "replay_diff": 0.31,
+                "mains_hum": 0.000010, "barkhausen": 0.006, "asperities": 0.009,
             },
-            "Abandoned Attic Find": {
-                "ips_base": 7.5, "motor_health": 2.0, "wow_dep": 3.0,
-                "drive": 3.0, "hiss": 0.008, "cutoff_base": 6000,
-                "head_bump": 2.0, "demagnetization": 0.4,
-                "print_through": 0.06, "dropout_rate": 0.2,
+            "MCI JH-24 (30ips)": {
+                # MCI slightly warmer than Studer, transformer coloration
+                "ips_base": 30.0, "motor_health": 0.025, "wow_dep": 0.01,
+                "flutter_dep": 0.006, "scrape_flutter": 0.05,
+                "drive": 1.08, "bias": 1.0,
+                "hiss": 0.000020, "hiss_color": 0.2, "cutoff_base": 21000,
+                "head_bump": 0.45, "print_through": 0.022, "replay_diff": 0.28,
+                "mains_hum": 0.000015, "barkhausen": 0.007, "asperities": 0.01,
             },
-            "Demagnetised Archive": {
-                "ips_base": 15.0, "motor_health": 0.5, "wow_dep": 0.3,
-                "drive": 1.5, "hiss": 0.002, "cutoff_base": 8000,
-                "demagnetization": 0.75, "head_bump": 1.0, "print_through": 0.05,
+            "Scotch 226 (7.5ips)": {
+                "ips_base": 7.5, "motor_health": 0.2, "wow_dep": 0.08,
+                "flutter_dep": 0.02, "scrape_flutter": 0.08,
+                "drive": 1.3, "bias": 0.95,
+                "hiss": 0.000079, "hiss_color": 0.25, "cutoff_base": 16000,
+                "head_bump": 0.85, "print_through": 0.03, "replay_diff": 0.28,
+                "mains_hum": 0.000020, "barkhausen": 0.015, "asperities": 0.02,
             },
+            "Revox B77 (7.5ips)": {
+                "ips_base": 7.5, "motor_health": 0.15, "wow_dep": 0.06,
+                "flutter_dep": 0.015, "scrape_flutter": 0.07,
+                "drive": 1.25, "bias": 0.97,
+                "hiss": 0.000063, "hiss_color": 0.2, "cutoff_base": 17000,
+                "head_bump": 0.75, "print_through": 0.025, "replay_diff": 0.29,
+                "mains_hum": 0.000018, "barkhausen": 0.012, "asperities": 0.016,
+            },
+            "Revox B77 (3.75ips)": {
+                "ips_base": 3.75, "motor_health": 0.4, "wow_dep": 0.25,
+                "flutter_dep": 0.04, "scrape_flutter": 0.12,
+                "drive": 1.6, "bias": 0.9,
+                "hiss": 0.000158, "hiss_color": 0.35, "cutoff_base": 12000,
+                "head_bump": 1.2, "print_through": 0.04, "replay_diff": 0.24,
+                "mains_hum": 0.000025, "barkhausen": 0.02, "asperities": 0.028,
+            },
+            # ── Consumer reel ─────────────────────────────────────────────────
+            "BASF LH Super (7.5ips)": {
+                "ips_base": 7.5, "motor_health": 0.4, "wow_dep": 0.15,
+                "flutter_dep": 0.03, "scrape_flutter": 0.09,
+                "drive": 1.4, "bias": 0.9,
+                "hiss": 0.000100, "hiss_color": 0.3, "cutoff_base": 14000,
+                "head_bump": 1.0, "print_through": 0.035, "replay_diff": 0.25,
+                "mains_hum": 0.000025, "barkhausen": 0.02, "asperities": 0.025,
+                "crosstalk": 0.04,
+            },
+            "Maxell UD (7.5ips)": {
+                "ips_base": 7.5, "motor_health": 0.35, "wow_dep": 0.12,
+                "flutter_dep": 0.025, "scrape_flutter": 0.08,
+                "drive": 1.35, "bias": 0.92,
+                "hiss": 0.000089, "hiss_color": 0.28, "cutoff_base": 15000,
+                "head_bump": 0.9, "print_through": 0.028, "replay_diff": 0.26,
+                "mains_hum": 0.000020, "barkhausen": 0.018, "asperities": 0.022,
+                "crosstalk": 0.03,
+            },
+            "Tascam 38 (7.5ips)": {
+                # 8-track 1/2" consumer studio — noticeably noisier than pro 2"
+                "ips_base": 7.5, "motor_health": 0.5, "wow_dep": 0.2,
+                "flutter_dep": 0.04, "scrape_flutter": 0.1,
+                "drive": 1.5, "bias": 0.92,
+                "hiss": 0.000125, "hiss_color": 0.32, "cutoff_base": 14500,
+                "head_bump": 1.1, "print_through": 0.03, "replay_diff": 0.26,
+                "crosstalk": 0.07, "mains_hum": 0.000030,
+                "barkhausen": 0.022, "asperities": 0.028,
+            },
+            # ── Multitrack ────────────────────────────────────────────────────
+            "4-Track Portastudio (1.875ips)": {
+                # Tascam Portastudio on Type I at slow speed — the classic lo-fi sound
+                "ips_base": 1.875, "motor_health": 1.2, "wow_dep": 2.0,
+                "flutter_dep": 0.18, "scrape_flutter": 0.25,
+                "drive": 2.8, "bias": 0.82,
+                "hiss": 0.000316, "hiss_color": 0.6, "cutoff_base": 10000,
+                "head_bump": 2.0, "replay_diff": 0.18, "crosstalk": 0.22,
+                "mains_hum": 0.000040, "barkhausen": 0.05, "asperities": 0.06,
+                "tension_load": 0.1,
+            },
+            "8-Track Cartridge": {
+                # 8-track at 3.75 IPS — continuous loop, head bump from cart pressure
+                "ips_base": 3.75, "motor_health": 1.5, "wow_dep": 1.8,
+                "flutter_dep": 0.15, "scrape_flutter": 0.28,
+                "drive": 2.5, "bias": 0.85,
+                "hiss": 0.000251, "hiss_color": 0.55, "cutoff_base": 9000,
+                "head_bump": 2.5, "replay_diff": 0.17, "crosstalk": 0.3,
+                "mains_hum": 0.000035, "tension_load": 0.15,
+                "barkhausen": 0.04, "asperities": 0.055,
+            },
+            # ── Cassette ──────────────────────────────────────────────────────
+            "Type I (Fe2O3) Normal": {
+                "ips_base": 1.875, "motor_health": 1.0, "wow_dep": 1.5,
+                "flutter_dep": 0.12, "scrape_flutter": 0.18,
+                "drive": 2.2, "bias": 0.85,
+                "hiss": 0.000199, "hiss_color": 0.5, "cutoff_base": 12500,
+                "head_bump": 1.8, "replay_diff": 0.2,
+                "mains_hum": 0.000030, "barkhausen": 0.04, "asperities": 0.05,
+                "crosstalk": 0.18, "tension_load": 0.08,
+            },
+            "Type II Chrome (CrO2)": {
+                "ips_base": 1.875, "motor_health": 0.7, "wow_dep": 1.0,
+                "flutter_dep": 0.09, "scrape_flutter": 0.14,
+                "drive": 1.8, "bias": 1.35,
+                "hiss": 0.000125, "hiss_color": 0.35, "cutoff_base": 15000,
+                "head_bump": 1.3, "replay_diff": 0.25,
+                "mains_hum": 0.000022, "barkhausen": 0.025, "asperities": 0.03,
+                "crosstalk": 0.1, "tension_load": 0.05,
+            },
+            "Type IV Metal": {
+                "ips_base": 1.875, "motor_health": 0.5, "wow_dep": 0.7,
+                "flutter_dep": 0.06, "scrape_flutter": 0.10,
+                "drive": 1.5, "bias": 1.7,
+                "hiss": 0.000079, "hiss_color": 0.2, "cutoff_base": 18000,
+                "head_bump": 0.9, "replay_diff": 0.3,
+                "mains_hum": 0.000015, "barkhausen": 0.015, "asperities": 0.018,
+                "crosstalk": 0.06, "tension_load": 0.03,
+            },
+            "Dolby B (Type I)": {
+                "ips_base": 1.875, "motor_health": 0.9, "wow_dep": 1.2,
+                "flutter_dep": 0.10, "scrape_flutter": 0.15,
+                "drive": 2.0, "bias": 0.88,
+                "hiss": 0.000063, "hiss_color": 0.2, "cutoff_base": 14000,
+                "head_bump": 1.6, "replay_diff": 0.22,
+                "mains_hum": 0.000025, "barkhausen": 0.03, "asperities": 0.035,
+                "crosstalk": 0.15,
+            },
+            "Dolby C (Type II)": {
+                # Dolby C ≈ 20dB NR — noticeably quieter than Dolby B
+                "ips_base": 1.875, "motor_health": 0.65, "wow_dep": 0.9,
+                "flutter_dep": 0.08, "scrape_flutter": 0.12,
+                "drive": 1.75, "bias": 1.35,
+                "hiss": 0.000031, "hiss_color": 0.15, "cutoff_base": 15500,
+                "head_bump": 1.2, "replay_diff": 0.24,
+                "mains_hum": 0.000018, "barkhausen": 0.02, "asperities": 0.025,
+                "crosstalk": 0.08, "tension_load": 0.04,
+            },
+            "Lo-Fi Bedroom (Type I)": {
+                # Cheap deck, no alignment, generic off-brand tape
+                "ips_base": 1.875, "motor_health": 2.0, "wow_dep": 3.0,
+                "flutter_dep": 0.25, "scrape_flutter": 0.35,
+                "drive": 3.5, "bias": 0.75,
+                "hiss": 0.000316, "hiss_color": 0.7, "cutoff_base": 9000,
+                "head_bump": 2.5, "replay_diff": 0.15,
+                "mains_hum": 0.000060, "barkhausen": 0.06, "asperities": 0.08,
+                "crosstalk": 0.25, "tension_load": 0.15, "azimuth_drift": 0.15,
+            },
+            # ── Video / Broadcast ─────────────────────────────────────────────
             "VHS Linear Audio": {
-                "ips_base": 1.3125, "motor_health": 1.5, "wow_dep": 2.0,
-                "drive": 2.0, "hiss": 0.007, "cutoff_base": 8000,
-                "crosstalk": 0.3, "head_bump": 2.0, "mains_hum": 0.005,
+                "ips_base": 1.3125, "motor_health": 1.8, "wow_dep": 2.5,
+                "flutter_dep": 0.2, "scrape_flutter": 0.3,
+                "drive": 2.5, "bias": 0.8,
+                "hiss": 0.000397, "hiss_color": 0.65, "cutoff_base": 8000,
+                "head_bump": 2.2, "replay_diff": 0.15,
+                "mains_hum": 0.000100, "crosstalk": 0.35, "asperities": 0.07,
+                "tension_load": 0.12,
+            },
+            "Betamax Audio": {
+                "ips_base": 1.873, "motor_health": 1.4, "wow_dep": 1.8,
+                "flutter_dep": 0.15, "scrape_flutter": 0.22,
+                "drive": 2.2, "bias": 0.82,
+                "hiss": 0.000316, "hiss_color": 0.55, "cutoff_base": 9500,
+                "head_bump": 2.0, "replay_diff": 0.17,
+                "mains_hum": 0.000080, "crosstalk": 0.28, "asperities": 0.06,
+                "tension_load": 0.10,
+            },
+            "U-Matic Low Band": {
+                "ips_base": 3.75, "motor_health": 0.9, "wow_dep": 1.0,
+                "flutter_dep": 0.1, "scrape_flutter": 0.18,
+                "drive": 2.0, "bias": 0.85,
+                "hiss": 0.000251, "hiss_color": 0.5, "cutoff_base": 10000,
+                "head_bump": 1.8, "replay_diff": 0.2,
+                "mains_hum": 0.000060, "crosstalk": 0.22, "asperities": 0.05,
+                "tension_load": 0.08, "print_through": 0.01,
+            },
+            # ── Damaged / Warped ──────────────────────────────────────────────
+            "Sticky Shed Syndrome": {
+                "ips_base": 7.5, "sticky_shed": 0.9, "motor_health": 4.0,
+                "wow_dep": 8.0, "flutter_dep": 0.5, "scrape_flutter": 0.7,
+                "drive": 3.0, "hiss": 0.000600, "hiss_color": 0.7,
+                "cutoff_base": 3500, "head_bump": 2.5,
+                "dropout_rate": 0.5, "oxide_shedding": 0.7, "tension_load": 0.25,
+            },
+            "Baked Tape (Post-Oven)": {
+                "ips_base": 7.5, "sticky_shed": 0.25, "motor_health": 1.0,
+                "wow_dep": 1.5, "flutter_dep": 0.08, "scrape_flutter": 0.15,
+                "drive": 2.0, "hiss": 0.000250, "hiss_color": 0.4,
+                "cutoff_base": 10000, "head_bump": 1.2,
+                "dropout_rate": 0.08, "oxide_shedding": 0.15,
+                "tension_load": 0.08, "demagnetization": 0.15,
+            },
+            "Mouldy Attic Find": {
+                "ips_base": 7.5, "motor_health": 2.5, "wow_dep": 4.0,
+                "flutter_dep": 0.3, "scrape_flutter": 0.45,
+                "drive": 3.5, "hiss": 0.000450, "hiss_color": 0.75,
+                "cutoff_base": 5000, "head_bump": 2.5,
+                "print_through": 0.08, "demagnetization": 0.55,
+                "dropout_rate": 0.35, "oxide_shedding": 0.4,
+                "asperities": 0.12, "barkhausen": 0.06,
+            },
+            "Dropout Disaster": {
+                "ips_base": 15.0, "motor_health": 0.5, "wow_dep": 0.5,
+                "drive": 1.8, "hiss": 0.000100, "hiss_color": 0.3,
+                "cutoff_base": 14000, "head_bump": 0.8,
+                "dropout_rate": 0.85, "oxide_shedding": 0.6,
+                "asperities": 0.08, "demagnetization": 0.1,
+            },
+            "Heavily Demagnetised": {
+                "ips_base": 15.0, "motor_health": 0.4, "wow_dep": 0.3,
+                "drive": 1.5, "hiss": 0.000150, "hiss_color": 0.5,
+                "cutoff_base": 6000, "head_bump": 1.2,
+                "demagnetization": 0.85, "print_through": 0.04, "replay_diff": 0.15,
+            },
+            "Warped & Fighting Motors": {
+                "ips_base": 15.0, "motor_health": 5.0, "motor_drag": 0.6,
+                "motor_boost": 0.6, "wow_dep": 12.0, "flutter_dep": 0.8,
+                "tension_load": 0.4, "drive": 2.0,
+                "hiss": 0.000199, "cutoff_base": 12000, "head_bump": 1.0,
+                "dropout_rate": 0.1, "scrape_flutter": 0.3,
+            },
+            "Chewed Tape": {
+                "ips_base": 7.5, "motor_health": 3.0, "wow_dep": 6.0,
+                "flutter_dep": 0.6, "scrape_flutter": 0.8,
+                "drive": 4.0, "hiss": 0.000600, "hiss_color": 0.8,
+                "cutoff_base": 4000, "head_bump": 3.0,
+                "dropout_rate": 0.7, "oxide_shedding": 0.8,
+                "asperities": 0.2, "demagnetization": 0.3, "tension_load": 0.35,
+            },
+            "Print-Through Ghost": {
+                "ips_base": 15.0, "motor_health": 0.08, "wow_dep": 0.04,
+                "drive": 1.1, "hiss": 0.000035, "hiss_color": 0.1,
+                "cutoff_base": 19000, "head_bump": 0.4,
+                "print_through": 0.09, "replay_diff": 0.3,
+                "demagnetization": 0.05, "barkhausen": 0.006,
+            },
+            "Stretched Tape": {
+                # Physically elongated tape — permanent pitch instability,
+                # elastic resonance, uneven thickness modulation
+                "ips_base": 15.0, "motor_health": 1.5, "wow_dep": 5.0,
+                "flutter_dep": 0.35, "scrape_flutter": 0.2, "tension_load": 0.3,
+                "drive": 2.0, "hiss": 0.000158, "hiss_color": 0.4,
+                "cutoff_base": 11000, "head_bump": 1.5,
+                "dropout_rate": 0.15, "oxide_shedding": 0.2,
+                "demagnetization": 0.1,
+            },
+            "Heat Warped": {
+                # Left in a hot car — hub deformed, layer separation,
+                # extreme wow from uneven winding
+                "ips_base": 7.5, "motor_health": 3.5, "wow_dep": 10.0,
+                "flutter_dep": 0.45, "scrape_flutter": 0.5, "tension_load": 0.35,
+                "drive": 2.5, "hiss": 0.000315, "hiss_color": 0.6,
+                "cutoff_base": 7000, "head_bump": 2.0,
+                "dropout_rate": 0.25, "oxide_shedding": 0.35,
+                "demagnetization": 0.25, "sticky_shed": 0.3,
+            },
+            "Spliced Archive": {
+                # Professional reel with many edit splices — tiny level bumps
+                # and phase glitches at each join, some print-through
+                "ips_base": 15.0, "motor_health": 0.15, "wow_dep": 0.15,
+                "flutter_dep": 0.012, "scrape_flutter": 0.06,
+                "drive": 1.15, "hiss": 0.000050, "hiss_color": 0.15,
+                "cutoff_base": 18000, "head_bump": 0.5,
+                "print_through": 0.045, "replay_diff": 0.3,
+                "dropout_rate": 0.05, "asperities": 0.03,
+                "mains_hum": 0.000010,
+            },
+            "Soviet ORWO Copy": {
+                # ORWO RN55 / UN54 — East German oxide, somewhat harsh HF,
+                # noisier than Western equivalents at similar speeds
+                "ips_base": 15.0, "motor_health": 0.6, "wow_dep": 0.4,
+                "flutter_dep": 0.05, "scrape_flutter": 0.12,
+                "drive": 1.6, "bias": 0.88,
+                "hiss": 0.000125, "hiss_color": 0.4, "cutoff_base": 15000,
+                "head_bump": 0.9, "print_through": 0.04, "replay_diff": 0.27,
+                "mains_hum": 0.000045, "barkhausen": 0.03, "asperities": 0.04,
+                "crosstalk": 0.05,
+            },
+            # ── Radio / Broadcast ─────────────────────────────────────────────
+            "BBC Radiophonic (7.5ips)": {
+                # BBC Radiophonic Workshop — Ampex/EMI machines, precise alignment,
+                # heavy tape manipulation, some splicing artefacts
+                "ips_base": 7.5, "motor_health": 0.12, "wow_dep": 0.05,
+                "flutter_dep": 0.012, "scrape_flutter": 0.07,
+                "drive": 1.2, "bias": 0.98,
+                "hiss": 0.000079, "hiss_color": 0.2, "cutoff_base": 16000,
+                "head_bump": 0.7, "print_through": 0.03, "replay_diff": 0.3,
+                "mains_hum": 0.000020, "barkhausen": 0.01, "asperities": 0.015,
+                "dropout_rate": 0.03,
+            },
+            "AM Radio Dub": {
+                # Tape of a radio broadcast — AM bandwidth, 50Hz hum from receiver,
+                # slight wow from the consumer deck used for recording
+                "ips_base": 3.75, "motor_health": 0.6, "wow_dep": 0.4,
+                "flutter_dep": 0.04, "scrape_flutter": 0.1,
+                "drive": 2.2, "bias": 0.88,
+                "hiss": 0.000200, "hiss_color": 0.55, "cutoff_base": 5000,
+                "head_bump": 1.2, "replay_diff": 0.22,
+                "mains_hum": 0.000080, "crosstalk": 0.12, "asperities": 0.04,
+            },
+            # ── Lo-Fi / Special ───────────────────────────────────────────────
+            "Ghetto Blaster": {
+                # High-bias chrome in a cheap portable — thin plastic head,
+                # worn pinch roller, drift from batteries running low
+                "ips_base": 1.875, "motor_health": 2.5, "wow_dep": 3.5,
+                "flutter_dep": 0.3, "scrape_flutter": 0.4,
+                "drive": 3.0, "bias": 1.1,
+                "hiss": 0.000398, "hiss_color": 0.65, "cutoff_base": 10000,
+                "head_bump": 2.2, "replay_diff": 0.17,
+                "mains_hum": 0.0, "crosstalk": 0.28, "asperities": 0.07,
+                "tension_load": 0.2, "azimuth_drift": 0.2,
+            },
+            "Answering Machine": {
+                # Micro-cassette at 1.2 IPS — tiny head, extreme HF loss,
+                # massive wow from the tiny motor
+                "ips_base": 1.2, "motor_health": 3.0, "wow_dep": 5.0,
+                "flutter_dep": 0.5, "scrape_flutter": 0.55,
+                "drive": 4.0, "bias": 0.75,
+                "hiss": 0.000631, "hiss_color": 0.75, "cutoff_base": 5500,
+                "head_bump": 3.0, "replay_diff": 0.12,
+                "mains_hum": 0.0, "crosstalk": 0.4, "asperities": 0.1,
+                "azimuth_drift": 0.3, "tension_load": 0.25,
+            },
+            "Handheld Dictaphone": {
+                # Compact cassette at slow speed, AGC compression artefacts,
+                # mono head on stereo tape
+                "ips_base": 0.9375, "motor_health": 2.8, "wow_dep": 4.5,
+                "flutter_dep": 0.45, "scrape_flutter": 0.6,
+                "drive": 3.5, "bias": 0.78,
+                "hiss": 0.000794, "hiss_color": 0.8, "cutoff_base": 4500,
+                "head_bump": 2.8, "replay_diff": 0.1,
+                "mains_hum": 0.0, "crosstalk": 0.45, "asperities": 0.12,
+                "azimuth_drift": 0.35,
+            },
+            "Toy Piano Recording": {
+                # Cheap toy recorder from 1970s — elastic band drive,
+                # completely random speed, lo-fi magic
+                "ips_base": 1.875, "motor_health": 8.0, "wow_dep": 18.0,
+                "flutter_dep": 1.5, "scrape_flutter": 0.9,
+                "drive": 5.0, "bias": 0.65,
+                "hiss": 0.001000, "hiss_color": 0.85, "cutoff_base": 3000,
+                "head_bump": 4.0, "replay_diff": 0.1,
+                "mains_hum": 0.0, "crosstalk": 0.5, "asperities": 0.18,
+                "dropout_rate": 0.15, "tension_load": 0.4,
+            },
+            # ── More Damaged ──────────────────────────────────────────────────
+            "Tsunami Flood Tape": {
+                # Water-damaged, dried without cleaning — oxide loosened,
+                # erratic dropout storms, residue on heads
+                "ips_base": 7.5, "motor_health": 3.5, "wow_dep": 5.0,
+                "flutter_dep": 0.4, "scrape_flutter": 0.65,
+                "drive": 3.5, "hiss": 0.000700, "hiss_color": 0.7,
+                "cutoff_base": 4500, "head_bump": 3.0,
+                "dropout_rate": 0.65, "oxide_shedding": 0.75,
+                "demagnetization": 0.4, "asperities": 0.18,
+                "sticky_shed": 0.6, "tension_load": 0.3,
+            },
+            "Fire-Damaged Archive": {
+                # Heat warped, partial oxide sublimation, magnetic domains
+                # partially randomised — thin wispy signal, constant dropout
+                "ips_base": 7.5, "motor_health": 4.0, "wow_dep": 7.0,
+                "flutter_dep": 0.55, "scrape_flutter": 0.75,
+                "drive": 5.0, "hiss": 0.000630, "hiss_color": 0.8,
+                "cutoff_base": 3000, "head_bump": 2.5,
+                "dropout_rate": 0.75, "oxide_shedding": 0.9,
+                "demagnetization": 0.7, "asperities": 0.25,
+                "sticky_shed": 0.8, "tension_load": 0.45,
+            },
+            "Played 1000 Times": {
+                # Heavily worn — oxide thinned from head friction, print-through
+                # from years of storage, loss of high coercivity particles
+                "ips_base": 7.5, "motor_health": 0.8, "wow_dep": 0.8,
+                "flutter_dep": 0.1, "scrape_flutter": 0.2,
+                "drive": 2.5, "hiss": 0.000316, "hiss_color": 0.45,
+                "cutoff_base": 8000, "head_bump": 1.5,
+                "dropout_rate": 0.12, "oxide_shedding": 0.45,
+                "demagnetization": 0.5, "print_through": 0.06,
+                "asperities": 0.09, "barkhausen": 0.04,
             },
         }
+
         oxide_map = {
-            "Chrome Cassette (1.875ips)": "CrO2",
-            "Metal Tape (1.875ips)":      "Metal",
+            "Type II Chrome (CrO2)":  "CrO2",
+            "Type IV Metal":          "Metal",
+            "Dolby B (Type I)":       "Fe2O3",
+            "Dolby C (Type II)":      "CrO2",
         }
         self.oxide_var.set(oxide_map.get(name, "Fe2O3"))
+
         if name in p:
-            for k, v in p[name].items():
+            # Apply DEFAULTS first — guarantees every control is set
+            merged = dict(DEFAULTS)
+            merged.update(p[name])
+            for k, v in merged.items():
                 if k in self.controls:
                     self.controls[k].set(v)
         self.sync()
 
+    # ── Telemetry
     # ── Telemetry ────────────────────────────────────────────────────────────────
+    def _on_close(self):
+        """Clean shutdown — set flag, stop audio, exit mainloop, destroy."""
+        log_ui.info("Window close requested — shutting down")
+        self._closing = True
+        self.engine.is_playing = False
+        self.is_rewinding      = False
+        self.is_ffing          = False
+        # quit() exits mainloop() without touching widgets, so no
+        # in-flight after() callbacks can fire against half-destroyed widgets.
+        self.root.quit()
+        self.root.destroy()
+
     def update_telemetry(self):
+        if self._closing:
+            return
         # ── Reel position ──────────────────────────────────────────────────
         if self.engine.total_samples > 0:
             ph           = self.engine.play_head

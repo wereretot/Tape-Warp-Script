@@ -108,12 +108,19 @@ class ElectronicComponents:
             )[:, None]
             proc = proc + hum
 
-        # 6. PINK HISS TILT — colours the noise toward pink/brown, full bandwidth
+        # 6. PINK HISS TILT — leaky-integrator 1/f colouring
+        # 1-pole IIR (pole=0.99) gives proper pink/brown tilt, bounded amplitude,
+        # no block-boundary accumulation artefacts from cumsum.
         hiss_color = params.get('hiss_color', 0.0)
         if hiss_color > 0 and dynamic_hiss > 0:
-            pink = np.cumsum(np.random.normal(0, dynamic_hiss * 0.3, proc.shape), axis=0)
-            pink -= np.mean(pink, axis=0)
-            pink  = np.clip(pink, -dynamic_hiss * 8, dynamic_hiss * 8)
+            n, ch = proc.shape
+            white = np.random.normal(0, dynamic_hiss * 0.15, (n, ch))
+            pink  = np.zeros((n, ch))
+            s     = np.zeros(ch)
+            for i in range(n):
+                s       = 0.99 * s + white[i]
+                pink[i] = s
+            pink -= pink.mean(axis=0)
             proc  = proc + pink * hiss_color
 
 
