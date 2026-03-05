@@ -47,16 +47,41 @@ class MagneticPath:
         Ms       = oxide['Ms']
 
         # 1. PRINT-THROUGH
+        # Layer-to-layer magnetic bleed between adjacent tape winds.
+        # The stronger ghost (70%) comes from the layer wound ON TOP of the current
+        # position — which in a forward-wound reel is the content recorded LATER.
+        # In forward play: "later content" = higher read_indices → gi_ahead = +offset.
+        # In reverse play: tape traversed in opposite direction, so "later" in winding
+        # order is at LOWER read_indices in the reversed array → gi_ahead = -offset.
+        # We zero any ghost whose index was boundary-clamped (would add same-content artefact).
         print_amt = params.get('print_through', 0.0)
         if print_amt > 0 and full_audio_data is not None:
-            la      = int(44100 * 1.5)
+            N       = len(full_audio_data)
+            la      = int(44100 * 1.5)   # ~1.5s layer spacing
             lb      = int(44100 * 1.5)
-            gi_fwd  = np.clip(np.floor(read_indices).astype(np.int32) + la,
-                              0, len(full_audio_data) - 1)
-            gi_back = np.clip(np.floor(read_indices).astype(np.int32) - lb,
-                              0, len(full_audio_data) - 1)
-            out_v += full_audio_data[gi_fwd]  * print_amt * 0.7
-            out_v += full_audio_data[gi_back] * print_amt * 0.3
+            raw_idx = np.floor(read_indices).astype(np.int32)
+            is_rev  = params.get('is_reversed', False)
+
+            if not is_rev:
+                # Forward: future content (not yet heard) = +offset → stronger ghost
+                pre_raw  = raw_idx + la
+                post_raw = raw_idx - lb
+                w_pre, w_post = 0.7, 0.3
+            else:
+                # Reverse: future content (not yet heard in this play) = -offset
+                pre_raw  = raw_idx - la
+                post_raw = raw_idx + lb
+                w_pre, w_post = 0.7, 0.3
+
+            pre_clamped  = np.clip(pre_raw,  0, N - 1)
+            post_clamped = np.clip(post_raw, 0, N - 1)
+
+            # Zero contribution wherever clamping changed the index (boundary artefact)
+            pre_mask  = (pre_raw  == pre_clamped ).astype(float)[:, None]
+            post_mask = (post_raw == post_clamped).astype(float)[:, None]
+
+            out_v += full_audio_data[pre_clamped]  * (print_amt * w_pre)  * pre_mask
+            out_v += full_audio_data[post_clamped] * (print_amt * w_post) * post_mask
 
         # 2. STEREO CROSSTALK
         cross = params.get('crosstalk', 0.0)
@@ -88,12 +113,17 @@ class MagneticPath:
         # use a compressed scale so the difference is audible but not extreme
         knee_scale = 1.0 / np.clip(hc_ratio ** 0.5, 0.5, 4.0)
 
-        h_in    = out_v * drive
-        raw_sat = np.tanh(h_in * knee_scale / softness) * softness / knee_scale
-        # Ms scales the output ceiling: Metal produces more output for same input
-        # normalise by drive so unity-gain at low levels regardless of oxide
-        ceiling = Ms / max(drive * 0.5 + 0.5, 0.1)
-        proc    = raw_sat * ceiling
+        if params.get('_presaturated', False):
+            # Signal already saturated externally (oversampled path) — skip tanh.
+            # out_v already contains the alias-free saturated signal.
+            proc = out_v
+        else:
+            h_in    = out_v * drive
+            raw_sat = np.tanh(h_in * knee_scale / softness) * softness / knee_scale
+            # Ms scales the output ceiling: Metal produces more output for same input
+            # normalise by drive so unity-gain at low levels regardless of oxide
+            ceiling = Ms / max(drive * 0.5 + 0.5, 0.1)
+            proc    = raw_sat * ceiling
 
         # 4. REPLAY HEAD DIFFERENTIATION — cross-block continuous
         replay_diff = params.get('replay_diff', 0.3)
@@ -117,15 +147,29 @@ class MagneticPath:
         if asp > 0:
             proc += np.random.normal(0, asp * 0.005, proc.shape) * np.abs(proc)
 
-        # 7. DEMAGNETISATION — cross-block continuous 1-pole IIR
+        # 7. DEMAGNETISATION — causal IIR lowpass in the direction of tape travel.
+        # A demagnetised head attenuates HF from whichever direction the tape moves.
+        # The IIR must be applied causally in the playback direction so that its
+        # temporal smearing matches the physical head gap integration order.
+        # In reverse: process the block backwards, then flip the result back.
         demag = params.get('demagnetization', 0.0)
         if demag > 0:
             alpha = np.clip(demag * 0.8, 0, 0.99)
-            proc_with_prev = np.vstack([self._demag_last[None, :], proc])
-            for i in range(1, n + 1):
-                proc_with_prev[i] = (proc_with_prev[i] * (1 - alpha)
-                                     + proc_with_prev[i - 1] * alpha)
-            proc = proc_with_prev[1:]
+            is_rev = params.get('is_reversed', False)
+            if is_rev:
+                # Reverse: flip block, filter forward, flip back
+                proc_fwd = proc[::-1].copy()
+                proc_with_prev = np.vstack([self._demag_last[None, :], proc_fwd])
+                for i in range(1, n + 1):
+                    proc_with_prev[i] = (proc_with_prev[i] * (1 - alpha)
+                                         + proc_with_prev[i - 1] * alpha)
+                proc = proc_with_prev[1:][::-1]
+            else:
+                proc_with_prev = np.vstack([self._demag_last[None, :], proc])
+                for i in range(1, n + 1):
+                    proc_with_prev[i] = (proc_with_prev[i] * (1 - alpha)
+                                         + proc_with_prev[i - 1] * alpha)
+                proc = proc_with_prev[1:]
         self._demag_last = proc[-1].copy()
 
         # 8. OXIDE SHEDDING

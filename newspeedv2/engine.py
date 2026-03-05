@@ -7,7 +7,7 @@ from mod_magnetic import MagneticPath
 from mod_electronics import ElectronicComponents
 
 class TapeEngine:
-    def __init__(self):
+    def __init__(self, seed=None):
         self.audio_data    = None
         self.total_samples = 0
         self.play_head     = 0.0
@@ -16,13 +16,64 @@ class TapeEngine:
         self.is_reversed   = False
         self.lock          = threading.Lock()
 
-        self.transport   = TransportDynamics()
+        self.transport   = TransportDynamics(seed=seed)
         self.magnetic    = MagneticPath()
         self.electronics = ElectronicComponents()
 
-        self.params       = {}
+        self.params        = {}
         self._scrape_phase = 0.0
-        self._scrape_state = np.zeros(2)   # IIR state for scrape coloring
+        self._scrape_state = np.zeros(4)   # [y_prev, x_prev] per channel for HP IIR
+        self._os_context   = None          # last N samples before upsample (FIR overlap context)
+        self._fade_in      = 0             # samples remaining in post-preset-change crossfade
+        self._last_out     = np.zeros(2, dtype=np.float32)  # last output sample for DC crossfade
+
+    def make_worker_engine(self, start_sample, block_size, oversample,
+                           shared_seed, n_warmup_blocks=16):
+        """
+        Create a worker TapeEngine pre-warmed to render from start_sample.
+
+        The engine is initialised with the same oscillator seed as the main
+        engine so wow/flutter LFO phases are continuous across slice boundaries.
+        It then runs n_warmup_blocks of actual audio (from before start_sample)
+        through the full DSP chain and discards the output.  This settles all
+        IIR filter states (head bump, azimuth lowpass, pink noise, scrape flutter,
+        azimuth delay buffer) to the values they would have had had the engine
+        been running continuously from the beginning of the file.
+
+        Worker 0 starts at sample 0 so its warm-up window is empty — it just
+        uses the cold-started engine directly (same as single-thread).
+        """
+        eng = TapeEngine(seed=shared_seed)
+        with self.lock:
+            eng.audio_data    = self.audio_data
+            eng.total_samples = self.total_samples
+            eng.params        = dict(self.params)
+            eng.is_reversed   = self.is_reversed
+
+        # Warm-up: start engine BEFORE the slice boundary so IIR filters settle.
+        warmup_samples = n_warmup_blocks * block_size
+        warmup_start   = max(0, start_sample - warmup_samples)
+        eng.play_head    = float(warmup_start)
+        eng.current_time = float(warmup_start) / 44100.0
+
+        # Motor is fully running mid-tape — no spin-up ramp.
+        eng.transport.motor_engage        = 1.0
+        eng.transport.current_motor_speed = 1.0
+
+        # Run warm-up blocks and discard their output.
+        while eng.play_head < start_sample:
+            blk = eng.dsp_process(block_size, oversample=oversample)
+            if blk is None:
+                break
+
+        # After warm-up, play_head may have overshot start_sample slightly
+        # (by up to block_size samples).  Reset it exactly so the worker
+        # begins its output at the correct position.
+        eng.play_head    = float(start_sample)
+        eng.current_time = float(start_sample) / 44100.0
+        # Keep _last_out from warm-up so the DC crossfade blends correctly.
+
+        return eng
 
     def load_file(self, path):
         raw = AudioSegment.from_file(path)
@@ -51,6 +102,7 @@ class TapeEngine:
     def reset_state(self):
         self.play_head    = 0.0
         self.current_time = 0.0
+        self._os_context  = None
         self.transport.reset()
         self.electronics.reset()
         self.magnetic.reset()
@@ -69,6 +121,8 @@ class TapeEngine:
                 return None
 
             p            = self.params
+            p            = dict(p, is_reversed=self.is_reversed,
+                                   motor_engage=1.0)   # fully engaged during playback
             speed_factor = p.get('ips_base', 15.0) / 15.0
 
             _result = self.transport.process_speed(
@@ -90,10 +144,15 @@ class TapeEngine:
             out_v = self.audio_data[i0] + (self.audio_data[i0+1] - self.audio_data[i0]) * frac[:, None]
 
             if oversample > 1:
-                # Oversampling the nonlinear saturation stage prevents tanh aliasing.
-                # Strategy: run the full magnetic chain at native rate, then compute
-                # what the saturation contributed natively vs oversampled, and swap it.
+                # Oversampled saturation: upsample → saturate → decimate.
+                # resample_poly uses a linear-phase FIR filter. Without context
+                # samples from the previous block, the filter cold-starts at
+                # block boundaries and produces a transient of up to 0.22 amplitude
+                # — audible as a regular click every block_size/44100 seconds.
+                # Fix: prepend _os_context (last PAD samples) before upsampling,
+                # strip after downsampling so output length stays == frames.
                 from scipy.signal import resample_poly
+                OS_PAD = 64   # 1.45ms context — enough for all supported OS ratios
 
                 oxide_name = p.get('oxide_type', 'Fe2O3')
                 oxide      = self.magnetic.OXIDE_PRESETS.get(
@@ -106,24 +165,29 @@ class TapeEngine:
                 knee_scale = 1.0 / float(np.clip(hc_ratio ** 0.5, 0.5, 4.0))
                 ceiling    = Ms / max(drive * 0.5 + 0.5, 0.1)
 
-                # Native saturation of out_v (what magnetic.process does internally)
-                h_in_nat   = out_v * drive
-                sat_native = np.tanh(h_in_nat * knee_scale / softness) * softness / knee_scale * ceiling
+                # Pad with previous-block context
+                has_context = self._os_context is not None
+                if has_context:
+                    padded = np.vstack([self._os_context, out_v])
+                else:
+                    padded = out_v   # first block: cold start is inaudible (silence→signal)
+                self._os_context = out_v[-OS_PAD:].copy()
 
-                # Oversampled saturation
-                up         = resample_poly(out_v, oversample, 1, axis=0)
-                h_in_up    = up * drive
-                sat_up     = np.tanh(h_in_up * knee_scale / softness) * softness / knee_scale * ceiling
-                sat_down   = resample_poly(sat_up, 1, oversample, axis=0)[:frames]
+                up      = resample_poly(padded, oversample, 1, axis=0)
+                h_up    = up * drive
+                sat_up  = np.tanh(h_up * knee_scale / softness) * softness / knee_scale * ceiling
+                sat_dec = resample_poly(sat_up, 1, oversample, axis=0)
 
-                # Correction: how much does OS saturation differ from native?
-                sat_correction = sat_down - sat_native
+                # Strip the padded prefix so output length == frames
+                pad_out = OS_PAD if has_context else 0
+                sat_dec = sat_dec[pad_out : pad_out + frames]
 
-                # Full native chain (correct read_indices, all stages)
-                proc_native = self.magnetic.process(out_v, self.audio_data, read_indices, p)
+                # Strip the padded prefix (OS_PAD input samples → OS_PAD output samples)
+                pad_out = 0 if padded is out_v else OS_PAD
+                sat_dec = sat_dec[pad_out : pad_out + frames]
 
-                # Add the OS correction to the native output
-                proc = proc_native + sat_correction
+                p_os = dict(p, _presaturated=True)
+                proc = self.magnetic.process(sat_dec, self.audio_data, read_indices, p_os)
                 proc = self.electronics.process(proc, frames, self.current_time,
                                                 speed_factor, sticky_drag, p)
             else:
@@ -137,54 +201,54 @@ class TapeEngine:
             # and phase bursts correlated with high-frequency content.
             # Modelled as: band-limited noise envelope × signal, at a fundamental
             # frequency set by IPS (faster tape → higher scrape frequency).
+            #
+            # IMPORTANT: after oversampling, proc may be shorter than `frames`
+            # (the last block of a pre-roll silence buffer or a speed->1 read
+            # can produce fewer output samples).  All array sizes below are
+            # derived from len(proc) — never from the `frames` parameter —
+            # so we never index out of bounds.
+            n_out = len(proc)
             scrape_amt = p.get('scrape_flutter', 0.0)
             if scrape_amt > 0.001:
                 SR_f  = 44100.0
                 ips   = p.get('ips_base', 15.0)
-                # Fundamental scrape frequency scales with tape speed
                 scrape_hz  = float(np.clip(2800.0 * (ips / 15.0), 600, 14000))
                 phase_inc  = scrape_hz / SR_f
-                phases     = self._scrape_phase + np.arange(frames) * phase_inc
+                phases     = self._scrape_phase + np.arange(n_out) * phase_inc
                 self._scrape_phase = float(phases[-1] % 1.0)
 
-                # Irregular envelope: sum of detuned oscillators + noise bursts
                 env = (np.sin(2 * np.pi * phases)
                      + np.sin(2 * np.pi * phases * 1.031 + 0.7) * 0.6
                      + np.sin(2 * np.pi * phases * 0.973 + 1.3) * 0.4
-                     + np.random.normal(0, 0.3, frames))
-                # Rectify so it's always a positive amplitude multiplier
-                env = np.abs(env)
-                # Normalise to [0, 1]
-                env_max = np.max(env) + 1e-9
-                env = env / env_max
+                     + np.random.normal(0, 0.3, n_out))
+                env = np.abs(env) / (np.max(np.abs(env)) + 1e-9)
 
-                # IIR colouring: scrape has more effect on high-frequency content.
-                # Apply a simple first-order HP to make it transient-focused.
-                alpha = float(np.clip(0.85 + scrape_amt * 0.1, 0.85, 0.97))
-                hf = np.zeros(frames)
-                s  = self._scrape_state[0]
-                for i in range(frames):
-                    s = alpha * s + alpha * (proc[i, 0] - (s if i > 0 else proc[i, 0]))
-                    hf[i] = proc[i, 0] - s
-                self._scrape_state[0] = s
+                alpha  = float(np.clip(0.85 + scrape_amt * 0.1, 0.85, 0.97))
+                hf     = np.zeros(n_out)
+                y_prev = self._scrape_state[0]
+                x_prev = self._scrape_state[1]
+                for i in range(n_out):
+                    x_cur  = proc[i, 0]
+                    y_cur  = alpha * (y_prev + x_cur - x_prev)
+                    hf[i]  = y_cur
+                    x_prev = x_cur
+                    y_prev = y_cur
+                self._scrape_state[0] = y_prev
+                self._scrape_state[1] = x_prev
 
-                # Depth: at full scrape_amt=1.0, modulates up to ±40% of HF content
                 depth = float(np.clip(scrape_amt * 0.4, 0.0, 0.45))
-                # Modulate only the high-frequency portion of the signal
                 mod_l = hf * env * depth
-                mod_r = mod_l * 0.85   # slight stereo decorrelation
-
                 proc[:, 0] += mod_l
-                proc[:, 1] += mod_r
+                proc[:, 1] += mod_l * 0.85
 
-            # Apply dropout mask — silences during oxide dropout events
-            proc *= dropout_mask[:, None]
+            # Apply dropout mask — trim to n_out in case transport generated
+            # a full-length mask but proc is shorter after OS decimation.
+            proc *= dropout_mask[:n_out, None]
 
             # Fighting speed: when boost and drag conflict, add tape tension AM.
-            # Use getattr so this works even if mod_transport is an older version.
             conflict = getattr(self.transport, 'last_conflict', 0.0)
             if conflict > 0.05:
-                t_arr = self.current_time + np.arange(frames) / 44100.0
+                t_arr = self.current_time + np.arange(n_out) / 44100.0
                 am_freq  = 2.0 + conflict * 3.0
                 am_depth = np.clip(conflict * 0.7, 0.0, 0.8)
                 am_env   = 1.0 - am_depth * (0.5 + 0.5 * np.sin(2 * np.pi * am_freq * t_arr))
@@ -192,4 +256,28 @@ class TapeEngine:
 
             self.play_head     = float(read_indices[-1])
             self.current_time += frames / 44100.0
-            return np.clip(proc, -1.0, 1.0)
+
+            # ── Analog-style output limiter ───────────────────────────────────
+            KNEE = 0.97
+            proc = np.tanh(proc / KNEE) * KNEE
+
+            # ── Post-preset-change DC crossfade ───────────────────────────────
+            # When params change (preset switch or slider move), IIR filter states
+            # are tuned to the old preset. The new block's first sample can jump
+            # discontinuously. We crossfade from _last_out (the true last output
+            # sample) to the new signal over _FADE_SAMPLES samples:
+            #   output[n] = new[n]*t + last_out*(1-t)  where t: 0→1
+            # At n=0: output = last_out exactly → zero jump across the boundary.
+            _FADE_SAMPLES = 512  # ~12ms — covers any IIR settling transient
+            if self._fade_in > 0:
+                fade_len  = min(self._fade_in, n_out)
+                pos_start = _FADE_SAMPLES - self._fade_in
+                t_ramp    = np.linspace(pos_start / _FADE_SAMPLES,
+                                        (pos_start + fade_len) / _FADE_SAMPLES,
+                                        fade_len, dtype=np.float32)
+                proc[:fade_len] = (proc[:fade_len] * t_ramp[:, None]
+                                   + self._last_out[None, :] * (1.0 - t_ramp[:, None]))
+                self._fade_in -= fade_len
+
+            self._last_out = proc[-1].copy()
+            return proc

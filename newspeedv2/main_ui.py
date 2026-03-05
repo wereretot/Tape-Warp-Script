@@ -387,6 +387,7 @@ class ForensicTapeStudio:
         self.controls     = {}
         self.is_rewinding = False
         self.is_ffing     = False
+        self._syncing     = False   # suppresses per-slider sync() during batch preset apply
 
         # Render options
         self.render_sample_rate  = tk.IntVar(value=44100)
@@ -400,6 +401,7 @@ class ForensicTapeStudio:
         self.render_direction      = tk.StringVar(value="forward")
         self.render_output_path    = tk.StringVar(value="")
         self.render_threads        = tk.IntVar(value=1)
+        self.render_preroll        = tk.DoubleVar(value=0.0)  # seconds of silence/noise before audio
 
         self._closing = False
         self._setup_styles()
@@ -451,30 +453,46 @@ class ForensicTapeStudio:
             lbl.pack(fill="x")
             return lbl
 
+        def _sep():
+            tk.Frame(status_block, bg=C["border"], height=1).pack(fill="x", padx=8, pady=2)
+
         # Section header
         tk.Frame(status_block, bg=C["border"], height=1).pack(fill="x")
-        _hdr = tk.Label(status_block, text=" MACHINE STATUS ",
-                        bg=C["bg4"], fg=C["amber"], font=("Consolas", 7, "bold"),
-                        anchor="w", padx=10, pady=2)
-        _hdr.pack(fill="x")
+        tk.Label(status_block, text=" MACHINE STATUS ",
+                 bg=C["bg4"], fg=C["amber"], font=("Consolas", 7, "bold"),
+                 anchor="w", padx=10, pady=2).pack(fill="x")
         tk.Frame(status_block, bg=C["border"], height=1).pack(fill="x")
-
         tk.Frame(status_block, bg="#000", height=3).pack()
 
-        self.lbl_sys_state  = _sl("STATE    : IDLE",      fg=C["grey"])
+        # ── Transport ────────────────────────────────────────────────────────
+        self.lbl_sys_state  = _sl("STATE    : IDLE",       fg=C["grey"])
         self.lbl_sys_speed  = _sl("SPEED    : 00.000 IPS", fg=C["grey"])
-        self.lbl_sys_dev    = _sl("DEVIATION: ±0.000%",   fg=C["grey"])
+        self.lbl_sys_dev    = _sl("DEVIATION: ±0.000%",    fg=C["grey"])
+        self.lbl_sys_pos    = _sl("POSITION : 00:00.00  REMAIN: 00:00.00", fg=C["grey"])
+        _sep()
 
-        tk.Frame(status_block, bg=C["border"], height=1).pack(fill="x", padx=8, pady=2)
-
+        # ── Power supply ─────────────────────────────────────────────────────
         self.lbl_volt_bar   = _sl("VOLT  [                    ]", fg=C["grey"],
                                   font=("Consolas", 7))
-        self.lbl_volt_val   = _sl("PWR SUPPLY: STABLE  0.00V", fg=C["grey"])
+        self.lbl_volt_val   = _sl("PWR SUPPLY: STABLE  0.00V",   fg=C["grey"])
+        _sep()
 
-        tk.Frame(status_block, bg=C["border"], height=1).pack(fill="x", padx=8, pady=2)
+        # ── Signal / oxide ───────────────────────────────────────────────────
+        self.lbl_sig_level  = _sl("SIGNAL   : ----  NOISE: ----",  fg=C["grey"])
+        self.lbl_oxide      = _sl("OXIDE    : Fe2O3  SAT: LOW",    fg=C["grey"])
+        self.lbl_bias_state = _sl("BIAS     : NOMINAL",             fg=C["grey"])
+        _sep()
 
-        self.lbl_drop_count = _sl("DROPOUTS : 0  LAST: --.-s", fg=C["grey"])
-        self.lbl_head_temp  = _sl("HEAD WEAR: NOMINAL",        fg=C["grey"])
+        # ── Tape condition ───────────────────────────────────────────────────
+        self.lbl_drop_count = _sl("DROPOUTS : 0  LAST: --.-s",    fg=C["grey"])
+        self.lbl_shed_state = _sl("BINDER   : INTACT",             fg=C["grey"])
+        self.lbl_demag_state= _sl("DEMAG    : CLEAR",              fg=C["grey"])
+        self.lbl_head_temp  = _sl("HEAD WEAR: NOMINAL",             fg=C["grey"])
+        _sep()
+
+        # ── Active effects ───────────────────────────────────────────────────
+        self.lbl_fx_chain   = _sl("FX       : ···",                fg=C["grey"],
+                                  font=("Consolas", 7))
 
         tk.Frame(status_block, bg="#000", height=3).pack()
         tk.Frame(status_block, bg=C["border"], height=1).pack(fill="x")
@@ -668,6 +686,26 @@ class ForensicTapeStudio:
                                     font=("Consolas", 12, "bold"))
         self.btn_export.pack(side="right", padx=3)
 
+        # ── Render progress bar (hidden until render starts) ──────────────────
+        prog_row = tk.Frame(footer, bg=C["bg2"])
+        prog_row.pack(fill="x", padx=16, pady=(0, 6))
+        self._render_prog_row  = prog_row
+
+        import tkinter.ttk as ttk_prog
+        style = ttk_prog.Style()
+        style.theme_use("default")
+        style.configure("Render.Horizontal.TProgressbar",
+                        troughcolor=C["bg3"], background=C["purple"],
+                        thickness=6, borderwidth=0)
+        self._render_prog_bar = ttk_prog.Progressbar(
+            prog_row, orient="horizontal", length=400, mode="determinate",
+            style="Render.Horizontal.TProgressbar")
+        self._render_prog_lbl = tk.Label(
+            prog_row, text="", bg=C["bg"], fg=C["purple"],
+            font=("Consolas", 8), anchor="w")
+        # Packed dynamically when render starts
+        prog_row.pack_forget()
+
         log_ui.debug("GUI layout complete")
 
     # ── Widget helpers ──────────────────────────────────────────────────────────
@@ -739,11 +777,34 @@ class ForensicTapeStudio:
         tk.Frame(row, bg=C["border"], height=1).pack(fill="x", side="bottom")
 
     def sync(self):
-        for k, v in self.controls.items():
-            self.engine.params[k] = v.get()
-        self.engine.params["oxide_type"] = self.oxide_var.get()
+        if self._syncing:
+            return
+        new_params = {k: v.get() for k, v in self.controls.items()}
+        new_params["oxide_type"] = self.oxide_var.get()
+        with self.engine.lock:
+            self.engine.params = new_params
 
-    # ── Render options dialog ───────────────────────────────────────────────────
+    # ── Render progress helpers (must be called from main thread via root.after) ──
+    def _render_prog_show(self):
+        """Reveal the progress bar row and reset it to 0."""
+        self._render_prog_bar["value"] = 0
+        self._render_prog_lbl.config(text="RENDERING…  0%")
+        self._render_prog_bar.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self._render_prog_lbl.pack(side="left")
+        self._render_prog_row.pack(fill="x", padx=16, pady=(0, 6))
+
+    def _render_prog_update(self, pct, eta_str):
+        """Update bar value and label — call via root.after(0, ...) from render thread."""
+        self._render_prog_bar["value"] = pct
+        self._render_prog_lbl.config(text=f"RENDERING…  {pct:.0f}%  {eta_str}")
+
+    def _render_prog_hide(self):
+        """Collapse the progress bar row after render finishes or fails."""
+        self._render_prog_row.pack_forget()
+        self._render_prog_bar.pack_forget()
+        self._render_prog_lbl.pack_forget()
+
+    # ── Render options dialog ─────────────────────────────────────────────
     def open_render_dialog(self):
         log_ui.info("Opening render options dialog")
         if self.engine.audio_data is None:
@@ -775,7 +836,8 @@ class ForensicTapeStudio:
             self._run_render(path, self.render_sample_rate.get(),
                              self.render_bit_depth.get(),
                              self.render_sim_quality.get(),
-                             self.render_direction.get())
+                             self.render_direction.get(),
+                             self.render_preroll.get())
 
         self._btn(btn_row, "CANCEL", win.destroy,
                   bg=C["bg3"], fg=C["grey_lt"], font=("Consolas", 11)).pack(side="left", padx=16)
@@ -917,6 +979,14 @@ class ForensicTapeStudio:
         check_row(self.render_normalize,      "Peak normalize to −0.1 dBFS  (recommended — tape compression reduces level)")
         check_row(self.render_match_loudness, "RMS loudness match — match output loudness to input source level")
 
+        # ── PRE-ROLL ─────────────────────────────────────────────────────────
+        section("PRE-ROLL  (leader noise before audio)")
+        label_row("Seconds of machine noise before the recording starts — hiss, hum, motor spin-up")
+        preroll_opts = [(0.0, "None"), (0.5, "0.5 s"), (1.0, "1 s"),
+                        (2.0, "2 s"), (3.0, "3 s"), (5.0, "5 s")]
+        radio_group(self.render_preroll, preroll_opts, cols=6)
+        label_row("Pre-roll renders electronics noise (hiss + hum) at full level with tape spin-up inertia.")
+
         # ── PERFORMANCE ───────────────────────────────────────────────────────
         section("PERFORMANCE  (experimental)")
         label_row("Render Threads  —  splits audio into parallel chunks, one per thread")
@@ -951,7 +1021,8 @@ class ForensicTapeStudio:
         tk.Frame(sf, bg=C["bg"], height=12).pack()   # bottom padding
 
 
-    def _run_render(self, path, sample_rate, bit_depth, sim_quality, direction="forward"):
+    def _run_render(self, path, sample_rate, bit_depth, sim_quality,
+                    direction="forward", preroll=0.0):
         log_render.info(f"Starting render → {path}")
         log_render.info(f"  Sample rate : {sample_rate} Hz")
         log_render.info(f"  Bit depth   : {bit_depth}-bit")
@@ -985,6 +1056,24 @@ class ForensicTapeStudio:
         self.btn_export.config(text="RENDERING…", state="disabled")
 
         def _run():
+            # Show progress bar
+            self.root.after(0, self._render_prog_show)
+            try:
+                _run_body()
+            except Exception as exc:
+                import traceback
+                log_render.error(f"Render failed: {exc}\n{traceback.format_exc()}")
+                err_msg = str(exc)   # capture before Python deletes `exc` after except block
+                self.root.after(0, lambda m=err_msg: [
+                    messagebox.showerror("Render Failed",
+                                         f"Render encountered an error:\n\n{m}"),
+                    self.btn_export.config(text="⬛  FORENSIC RENDER", state="normal"),
+                    self._render_prog_hide(),
+                ])
+            else:
+                self.root.after(0, self._render_prog_hide)
+
+        def _run_body():
             log_render.info("Waiting for playback threads to exit…")
             time.sleep(0.15)
 
@@ -1016,13 +1105,61 @@ class ForensicTapeStudio:
             log_render.info(f"Source: {total_samples} samples "
                             f"({total_samples/44100:.1f} s)")
 
+            # ── Pre-roll: leader noise + motor spin-up before audio ───────────
+            # Renders preroll seconds of electronics-only silence: hiss, hum, and
+            # the capstan spinning up from rest.  No tape audio content is read —
+            # the engine sees a silent buffer so only the noise floor is audible.
+            preroll_chunks = []
+            preroll_samps  = int(preroll * 44100)
+            if preroll_samps > 0:
+                log_render.info(f"Pre-roll: {preroll:.1f}s of leader noise")
+                silence = np.zeros((preroll_samps + block_size * 4, 2), dtype=np.float32)
+                pr_eng = TapeEngine()
+                pr_eng.audio_data    = silence
+                pr_eng.total_samples = len(silence)
+                pr_eng.params        = dict(self.engine.params)
+                pr_eng.is_reversed   = False
+                # motor_engage starts at 0 from reset — ramps to 1 naturally,
+                # giving the characteristic pitch-rise of a machine spinning up.
+                pr_done = 0
+                while pr_done < preroll_samps:
+                    blk = pr_eng.dsp_process(block_size, oversample=oversample)
+                    if blk is None:
+                        break
+                    keep = min(len(blk), preroll_samps - pr_done)
+                    preroll_chunks.append(blk[:keep].astype(np.float32))
+                    pr_done += keep
+                log_render.info(f"Pre-roll complete: {pr_done} samples")
+                # Flush motor_engage state into the main engine so the audio
+                # picks up at full speed rather than spinning up a second time.
+                self.engine.transport.motor_engage = pr_eng.transport.motor_engage
+                self.engine.transport.current_motor_speed = (
+                    pr_eng.transport.current_motor_speed)
+
             t_start = time.time()
+
+            def _report_progress(block_count, total_samps, t_start, last_log_ref):
+                """Log to console + push UI bar update every second."""
+                now = time.time()
+                if now - last_log_ref[0] < 1.0:
+                    return
+                rendered_samps = block_count * block_size
+                pct     = min(100.0, rendered_samps / max(total_samps, 1) * 100.0)
+                elapsed = max(now - t_start, 0.001)
+                spd     = rendered_samps / 44100.0 / elapsed
+                eta_s   = max(0.0, (total_samps - rendered_samps) / 44100.0 / max(spd, 0.001))
+                eta_str = (f"ETA {int(eta_s//60):02d}:{int(eta_s%60):02d}"
+                           if eta_s > 1 else "finishing…")
+                log_render.info(f"  {pct:5.1f}%  blk {block_count}  "
+                                f"{elapsed:.1f}s elapsed  {spd:.1f}×RT  {eta_str}")
+                self.root.after(0, lambda p=pct, e=eta_str: self._render_prog_update(p, e))
+                last_log_ref[0] = now
 
             if n_threads <= 1:
                 # ── Single-threaded serial render ─────────────────────────────
                 chunks      = []
                 block_count = 0
-                last_log    = t_start
+                last_log    = [t_start]   # list so _report_progress can mutate it
 
                 while True:
                     block = self.engine.dsp_process(block_size, oversample=oversample)
@@ -1030,15 +1167,7 @@ class ForensicTapeStudio:
                         break
                     chunks.append(block.astype(np.float32))
                     block_count += 1
-                    now = time.time()
-                    if now - last_log >= 1.0:
-                        rendered_samps = block_count * block_size
-                        pct = min(100, rendered_samps / max(total_samples, 1) * 100)
-                        spd = rendered_samps / 44100 / max(now - t_start, 0.001)
-                        log_render.info(f"  {pct:5.1f}%  block {block_count}  "
-                                        f"elapsed {now-t_start:.1f}s  ({spd:.1f}× realtime)")
-                        last_log = now
-
+                    _report_progress(block_count, total_samples, t_start, last_log)
             else:
                 # ── Multi-threaded parallel render ────────────────────────────
                 # Strategy: divide the source into N equal slices, spin up N
@@ -1049,7 +1178,6 @@ class ForensicTapeStudio:
                 # starts at the correct play_head offset for its slice.
                 # IIR state (replay_diff, demagnetisation, azimuth) is cold at
                 # each slice boundary — this is the noted discontinuity trade-off.
-                import copy
                 from concurrent.futures import ThreadPoolExecutor, as_completed
 
                 log_render.info(f"Multi-thread render: {n_threads} workers")
@@ -1058,22 +1186,34 @@ class ForensicTapeStudio:
                 # Each worker gets a contiguous range of source samples
                 slice_samples = total_samples // n_threads
 
-                def render_slice(worker_id, start_sample, end_sample):
-                    """Render samples [start_sample, end_sample) on an independent engine."""
-                    from mod_transport  import TransportDynamics
-                    from mod_magnetic   import MagneticPath
-                    from mod_electronics import ElectronicComponents
+                futures = {}
+                # Shared atomic counter — workers increment it each block so
+                # the progress bar reflects actual sample throughput rather than
+                # coarse worker-completion steps (25%/50%/75%/100%).
+                import threading as _threading
+                _mt_lock          = _threading.Lock()
+                _mt_blocks_done   = [0]   # mutable list so workers can mutate it
+                _total_blocks_est = max(1, total_samples // block_size)
 
-                    eng = TapeEngine()
-                    with self.engine.lock:
-                        eng.audio_data    = self.engine.audio_data          # shared read-only
-                        eng.total_samples = self.engine.total_samples
-                        eng.params        = dict(self.engine.params)        # shallow copy
-                        eng.is_reversed   = self.engine.is_reversed
-                    eng.play_head     = float(start_sample)
-                    eng.current_time  = float(start_sample) / 44100.0
+                # All workers share the same oscillator seed so their wow/flutter
+                # LFO phases are identical — no pitch step at slice boundaries.
+                _shared_seed = int(self.engine.total_samples) ^ 0xA5A5A5A5
+
+                def render_slice(worker_id, start_sample, end_sample):
+                    """Render samples [start_sample, end_sample) on a warmed-up engine."""
+                    log_render.debug(
+                        f"Worker {worker_id}: start={start_sample} end={end_sample}")
+
+                    # make_worker_engine runs warm-up blocks before start_sample
+                    # to settle all IIR filter states, so there are no clicks or
+                    # level steps at the joins between parallel chunks.
+                    eng = self.engine.make_worker_engine(
+                        start_sample, block_size, oversample,
+                        shared_seed=_shared_seed,
+                        n_warmup_blocks=16)
 
                     local_chunks = []
+                    last_prog_t  = [time.time()]
                     while True:
                         if eng.play_head >= end_sample:
                             break
@@ -1081,16 +1221,34 @@ class ForensicTapeStudio:
                         if block is None:
                             break
                         if eng.play_head > end_sample:
-                            # Trim overshoot on last block of this slice
-                            trim = int((eng.play_head - end_sample))
+                            trim = int(eng.play_head - end_sample)
                             block = block[:-trim] if trim < len(block) else block
                         local_chunks.append(block.astype(np.float32))
 
-                    log_render.debug(f"Worker {worker_id}: "
-                                     f"{sum(len(c) for c in local_chunks)} samples")
+                        # Update shared counter; push UI update at most once per second
+                        with _mt_lock:
+                            _mt_blocks_done[0] += 1
+                            done = _mt_blocks_done[0]
+                        now = time.time()
+                        if now - last_prog_t[0] >= 1.0:
+                            pct = min(99.0, done / _total_blocks_est * 100.0)
+                            elapsed = max(now - t_start, 0.001)
+                            spd = done * block_size / 44100.0 / elapsed
+                            eta_s = max(0.0, (_total_blocks_est - done) * block_size
+                                        / 44100.0 / max(spd, 0.001))
+                            eta_str = (f"ETA {int(eta_s//60):02d}:{int(eta_s%60):02d}"
+                                       if eta_s > 1 else "finishing…")
+                            log_render.info(f"  {pct:5.1f}%  blk {done}/{_total_blocks_est}"
+                                            f"  {elapsed:.1f}s  {spd:.1f}×RT  {eta_str}")
+                            self.root.after(0,
+                                lambda p=pct, e=eta_str: self._render_prog_update(p, e))
+                            last_prog_t[0] = now
+
+                    n_samp = sum(len(c) for c in local_chunks)
+                    log_render.debug(
+                        f"Worker {worker_id}: done — {len(local_chunks)} blocks, {n_samp} samples")
                     return worker_id, local_chunks
 
-                futures = {}
                 with ThreadPoolExecutor(max_workers=n_threads) as pool:
                     for i in range(n_threads):
                         s = i * slice_samples
@@ -1098,26 +1256,91 @@ class ForensicTapeStudio:
                         fut = pool.submit(render_slice, i, s, e)
                         futures[fut] = i
 
-                # Collect results in order
+                # Collect results — wrap fut.result() so a single worker failure
+                # is logged and reported clearly rather than silently dropped.
                 results = {}
+                errors  = []
                 for fut in as_completed(futures):
-                    wid, wchunks = fut.result()
-                    results[wid] = wchunks
-                    pct = len(results) / n_threads * 100
-                    log_render.info(f"  Worker {wid} done — {pct:.0f}% of workers complete")
+                    try:
+                        wid, wchunks = fut.result()
+                        results[wid] = wchunks
+                        log_render.info(
+                            f"  Worker {wid} done ({len(wchunks)} blocks)")
+                    except Exception as exc:
+                        import traceback
+                        wid = futures.get(fut, "?")
+                        log_render.error(
+                            f"Worker {wid} raised: {exc}\n{traceback.format_exc()}")
+                        errors.append((wid, str(exc)))
+
+                if errors:
+                    raise RuntimeError(
+                        f"{len(errors)} render worker(s) failed: "
+                        + "; ".join(str(e) for _, e in errors))
 
                 chunks = []
                 for i in range(n_threads):
-                    chunks.extend(results[i])
+                    chunks.extend(results.get(i, []))   # .get() guards missing workers
                 block_count = len(chunks)
+                if block_count == 0:
+                    raise RuntimeError("Multi-thread render produced no audio blocks.")
 
             t_elapsed_dsp = time.time() - t_start
             log_render.info(f"DSP complete: {block_count} blocks in {t_elapsed_dsp:.2f}s")
 
             # ── Assemble at native 44100 Hz, then convert SR as ONE operation ─
-            out_arr = np.vstack(chunks).astype(np.float64)
+            # Prepend pre-roll chunks (may be empty if preroll=0)
+            all_chunks = preroll_chunks + chunks
+            if not all_chunks:
+                raise RuntimeError("Render produced no audio blocks.")
+            out_arr = np.vstack(all_chunks).astype(np.float64)
+
+            # ── Crossfade at multi-thread chunk boundaries ────────────────────
+            # Each worker starts its IIR filters from warm-up state, and the
+            # trim logic creates small gaps in read position at every boundary.
+            # A short equal-power crossfade (XFADE_LEN samples) at each seam
+            # eliminates clicks from any residual discontinuity.
+            # 256 samples = 5.8 ms — inaudible as a blend on music.
+            if n_threads > 1:
+                XFADE = 256
+                # Rebuild per-worker arrays so we know exactly where each seam is
+                worker_arrs = []
+                for i in range(n_threads):
+                    wchunks = results.get(i, [])
+                    if wchunks:
+                        worker_arrs.append(np.vstack(wchunks).astype(np.float64))
+
+                if len(worker_arrs) > 1:
+                    # Crossfade adjacent workers
+                    fade_out = np.linspace(1.0, 0.0, XFADE)[:, None]
+                    fade_in  = np.linspace(0.0, 1.0, XFADE)[:, None]
+                    merged = worker_arrs[0]
+                    for nxt in worker_arrs[1:]:
+                        # Each worker may not have enough samples for a full xfade —
+                        # clamp to the shorter side.
+                        xf = min(XFADE, len(merged), len(nxt))
+                        if xf < 2:
+                            merged = np.vstack([merged, nxt])
+                            continue
+                        fo = np.linspace(1.0, 0.0, xf)[:, None]
+                        fi = np.linspace(0.0, 1.0, xf)[:, None]
+                        # Blend: keep all of `merged` up to the seam, then overlay
+                        merged[-xf:] = merged[-xf:] * fo + nxt[:xf] * fi
+                        merged = np.vstack([merged, nxt[xf:]])
+
+                    # Rebuild out_arr including pre-roll
+                    if preroll_chunks:
+                        pr_arr = np.vstack(preroll_chunks).astype(np.float64)
+                        out_arr = np.vstack([pr_arr, merged])
+                    else:
+                        out_arr = merged
+
+                    log_render.info(f"Applied {XFADE}-sample crossfades at "
+                                    f"{len(worker_arrs)-1} chunk boundaries")
+
+            total_dur = len(out_arr) / 44100
             log_render.info(f"Assembled: {len(out_arr)} samples at 44100 Hz "
-                            f"({len(out_arr)/44100:.2f}s)")
+                            f"({total_dur:.2f}s, pre-roll={preroll:.1f}s)")
 
             if sample_rate != 44100:
                 log_render.info(f"Resampling {44100} Hz → {sample_rate} Hz…")
@@ -1185,6 +1408,7 @@ class ForensicTapeStudio:
                              sample_width=2, channels=2).export(path, format="wav")
 
             log_render.info(f"Render complete → {path}")
+            self.root.after(0, lambda: self._render_prog_update(100, "done"))
 
             # Always restore overridden params and orientation
             self.engine.params["barkhausen"]    = saved_bark
@@ -1663,13 +1887,33 @@ class ForensicTapeStudio:
         self.oxide_var.set(oxide_map.get(name, "Fe2O3"))
 
         if name in p:
-            # Apply DEFAULTS first — guarantees every control is set
-            merged = dict(DEFAULTS)
-            merged.update(p[name])
-            for k, v in merged.items():
-                if k in self.controls:
-                    self.controls[k].set(v)
-        self.sync()
+            # Suppress per-slider sync() calls — each controls[k].set() would otherwise
+            # call sync() and push a half-applied param set into the live engine, causing
+            # up to 25 intermediate flickers and a race with the audio callback thread.
+            self._syncing = True
+            try:
+                merged = dict(DEFAULTS)
+                merged.update(p[name])
+                for k, v in merged.items():
+                    if k in self.controls:
+                        self.controls[k].set(v)
+            finally:
+                self._syncing = False
+
+            # Build the complete new params dict once, including oxide, then swap it
+            # atomically under the engine lock so the audio thread never sees a
+            # half-written state.
+            new_params = {k: v.get() for k, v in self.controls.items()}
+            new_params["oxide_type"] = self.oxide_var.get()
+
+            with self.engine.lock:
+                self.engine.params = new_params
+                # Trigger a short fade-in ramp on the engine output.
+                # This smooths over any IIR-state or parameter-jump transients
+                # on the first blocks after the preset change without needing
+                # to zero any cross-block state (zeroing _last_proc etc. actually
+                # makes the pop worse by forcing a cold-start spike).
+                self.engine._fade_in = 512
 
     # ── Telemetry
     # ── Telemetry ────────────────────────────────────────────────────────────────
@@ -1688,23 +1932,26 @@ class ForensicTapeStudio:
     def update_telemetry(self):
         if self._closing:
             return
+
         # ── Reel position ──────────────────────────────────────────────────
         if self.engine.total_samples > 0:
             ph           = self.engine.play_head
             ts           = self.engine.total_samples
             fwd_progress = float(np.clip(
                 (1.0 - ph / ts) if self.engine.is_reversed else (ph / ts), 0, 1))
-            filled   = int(fwd_progress * 8)
-            supply_s = "●" * (8 - filled) + "○" * filled
-            takeup_s = "○" * (8 - filled) + "●" * filled
+            filled    = int(fwd_progress * 8)
+            supply_s  = "●" * (8 - filled) + "○" * filled
+            takeup_s  = "○" * (8 - filled) + "●" * filled
             elapsed_s = ph / 44100.0
             remain_s  = (ts - ph) / 44100.0
             pos_str   = f"{int(elapsed_s//60):02d}:{elapsed_s%60:05.2f}"
+            rem_str   = f"{int(remain_s//60):02d}:{remain_s%60:05.2f}"
         else:
-            supply_s  = "●●●●●●●●"
-            takeup_s  = "○○○○○○○○"
-            pos_str   = "00:00.00"
-            remain_s  = 0.0
+            supply_s = "●●●●●●●●"
+            takeup_s = "○○○○○○○○"
+            pos_str  = "00:00.00"
+            rem_str  = "00:00.00"
+            remain_s = 0.0
 
         transport = self.engine.transport
         inst_spd  = getattr(transport, 'last_instant_speed', 1.0)
@@ -1714,159 +1961,203 @@ class ForensicTapeStudio:
         cur_time  = self.engine.current_time
         ips_set   = self.controls["ips_base"].get()
 
-        # ── Simulated voltage noise for VU bar ────────────────────────────
+        # ── Read all control values ────────────────────────────────────────
         health    = self.controls["motor_health"].get()
         drag      = self.controls["motor_drag"].get()
         boost     = self.controls["motor_boost"].get()
         shed      = self.controls["sticky_shed"].get()
+        demag     = self.controls["demagnetization"].get()
+        drive     = self.controls["drive"].get()
+        bias_v    = self.controls["bias"].get()
+        hiss_v    = self.controls["hiss"].get()
+        dropout_r = self.controls["dropout_rate"].get()
+        wow       = self.controls["wow_dep"].get()
+        flutter   = self.controls["flutter_dep"].get()
+        scrape    = self.controls["scrape_flutter"].get()
+        print_v   = self.controls["print_through"].get()
+        bark      = self.controls["barkhausen"].get()
+        asper     = self.controls["asperities"].get()
+        crosstk   = self.controls["crosstalk"].get()
+        oxide_n   = self.oxide_var.get()
 
+        # ── Simulated voltage noise for PSU bar ───────────────────────────
         if self.engine.is_playing:
-            # Voltage wanders with motor health and conflict
             if not hasattr(self, '_volt_state'):
                 self._volt_state = 0.0
             noise = np.random.normal(0, health * 0.008 + conflict * 0.02)
             self._volt_state += noise - self._volt_state * 0.05
             volt_dev = float(np.clip(self._volt_state, -1.0, 1.0))
-            # Nominal voltage 12V + deviation
-            volt_v = 12.0 + volt_dev * (0.5 + health * 0.4)
+            volt_v   = 12.0 + volt_dev * (0.5 + health * 0.4)
         else:
             self._volt_state = 0.0
             volt_dev = 0.0
-            volt_v = 12.0
+            volt_v   = 12.0
 
-        # ── Voltage bar (20 chars wide) ────────────────────────────────────
-        BAR_W = 20
+        # ── PSU bar ────────────────────────────────────────────────────────
+        BAR_W  = 20
         centre = BAR_W // 2
         fill_amt = int(abs(volt_dev) * centre)
+        bar_chars = list("·" * BAR_W)
         if volt_dev >= 0:
-            bar_chars = list("·" * BAR_W)
-            for i in range(centre, min(BAR_W, centre + fill_amt)):
-                bar_chars[i] = "█"
+            for i in range(centre, min(BAR_W, centre + fill_amt)): bar_chars[i] = "█"
         else:
-            bar_chars = list("·" * BAR_W)
-            for i in range(max(0, centre - fill_amt), centre):
-                bar_chars[i] = "█"
+            for i in range(max(0, centre - fill_amt), centre):     bar_chars[i] = "█"
         bar_chars[centre] = "│"
         bar_str = "".join(bar_chars)
 
-        # ── Voltage colour + label ─────────────────────────────────────────
         abs_dev = abs(volt_dev)
-        if abs_dev < 0.15:
-            volt_fg    = C["grey"]
-            volt_state = "STABLE"
-        elif abs_dev < 0.40:
-            volt_fg    = C["amber"]
-            volt_state = "DRIFTING"
-        elif abs_dev < 0.70:
-            volt_fg    = C["orange"]
-            volt_state = "UNSTABLE"
-        else:
-            volt_fg    = C["red"]
-            volt_state = "CRITICAL"
+        if abs_dev < 0.15:   volt_fg, volt_state = C["grey"],   "STABLE"
+        elif abs_dev < 0.40: volt_fg, volt_state = C["amber"],  "DRIFTING"
+        elif abs_dev < 0.70: volt_fg, volt_state = C["orange"], "UNSTABLE"
+        else:                volt_fg, volt_state = C["red"],    "CRITICAL"
 
-        # ── Speed deviation % ─────────────────────────────────────────────
+        # ── Speed deviation ────────────────────────────────────────────────
         spd_dev_pct = (inst_spd - 1.0) * 100.0
 
-        # ── Dropout last-seen countdown ───────────────────────────────────
+        # ── Dropout countdown ──────────────────────────────────────────────
         if drop_t > 0 and self.engine.is_playing:
             since = cur_time - drop_t
-            if since < 9.9:
-                drop_last_str = f"{since:4.1f}s"
-            else:
-                drop_last_str = " >9s"
+            drop_last_str = f"{since:4.1f}s" if since < 9.9 else " >9s"
         else:
             drop_last_str = "  --"
 
-        # ── Head wear from sticky shed + demagnetisation ──────────────────
-        demag = self.controls["demagnetization"].get()
-        wear_score = shed * 0.6 + demag * 0.4
-        if wear_score < 0.05:
-            wear_str = "NOMINAL"
-            wear_fg  = C["grey"]
-        elif wear_score < 0.25:
-            wear_str = "MINOR WEAR"
-            wear_fg  = C["amber"]
-        elif wear_score < 0.60:
-            wear_str = "DEGRADED"
-            wear_fg  = C["orange"]
-        else:
-            wear_str = "SEVERE DAMAGE"
-            wear_fg  = C["red"]
+        # ── Oxide / saturation state ───────────────────────────────────────
+        # Estimate saturation from drive parameter relative to oxide ceiling
+        oxide_ceilings = {"Fe2O3": 1.0, "CrO2": 1.1, "Metal": 1.2, "FeCo": 1.25}
+        ceiling = oxide_ceilings.get(oxide_n, 1.0)
+        sat_ratio = drive / (ceiling * 4.0)   # normalised 0-1 across slider range
+        if sat_ratio < 0.15:    sat_str, sat_fg = "CLEAN",    C["grey"]
+        elif sat_ratio < 0.30:  sat_str, sat_fg = "WARM",     C["amber"]
+        elif sat_ratio < 0.55:  sat_str, sat_fg = "DRIVEN",   C["orange"]
+        elif sat_ratio < 0.75:  sat_str, sat_fg = "SATURATED",C["orange"]
+        else:                   sat_str, sat_fg = "OVERDRIVEN",C["red"]
 
-        # ── State string + colours ─────────────────────────────────────────
-        tick = int(cur_time * 8) % 2
-        spin = ["◆", "◇"]
+        # ── Bias state ────────────────────────────────────────────────────
+        if abs(bias_v - 1.0) < 0.08:   bias_str, bias_fg = "NOMINAL",    C["grey"]
+        elif bias_v < 1.0:              bias_str, bias_fg = "UNDERBIAS",  C["orange"]
+        elif bias_v < 1.5:              bias_str, bias_fg = "OVERBIAS",   C["amber"]
+        else:                           bias_str, bias_fg = "HIGH BIAS",  C["red"]
+
+        # ── Noise floor estimate ───────────────────────────────────────────
+        speed_factor = ips_set / 15.0
+        eff_noise = hiss_v / max(speed_factor ** 0.5, 0.01)
+        if eff_noise < 0.0001:  noise_str = "< -80dB"
+        else:                   noise_str = f"{20*np.log10(eff_noise+1e-10):.0f}dB"
+
+        # ── Simulated signal level meter (peek at play_head region) ───────
+        if self.engine.is_playing and self.engine.audio_data is not None:
+            ph_i = int(np.clip(self.engine.play_head, 0,
+                               self.engine.total_samples - 256))
+            chunk = self.engine.audio_data[ph_i:ph_i+256]
+            sig_peak = float(np.max(np.abs(chunk))) if len(chunk) else 0.0
+            sig_rms  = float(np.sqrt(np.mean(chunk**2))) if len(chunk) else 0.0
+            if sig_peak < 0.001:   sig_str, sig_fg = "SILENCE",  C["grey"]
+            elif sig_peak < 0.3:   sig_str, sig_fg = f"{20*np.log10(sig_rms+1e-10):.0f}dBFS", C["grey"]
+            elif sig_peak < 0.7:   sig_str, sig_fg = f"{20*np.log10(sig_rms+1e-10):.0f}dBFS", C["amber"]
+            elif sig_peak < 0.95:  sig_str, sig_fg = f"{20*np.log10(sig_rms+1e-10):.0f}dBFS", C["orange"]
+            else:                  sig_str, sig_fg = f"HOT {20*np.log10(sig_rms+1e-10):.0f}dBFS", C["red"]
+        else:
+            sig_str, sig_fg = "----", C["grey"]
+
+        # ── Binder / sticky shed ──────────────────────────────────────────
+        if shed < 0.05:    shed_str, shed_fg = "INTACT",        C["grey"]
+        elif shed < 0.3:   shed_str, shed_fg = "SOFTENING",     C["amber"]
+        elif shed < 0.65:  shed_str, shed_fg = "SHEDDING",      C["orange"]
+        else:              shed_str, shed_fg = "CRITICAL SHED", C["red"]
+
+        # ── Demagnetisation ───────────────────────────────────────────────
+        if demag < 0.05:   demag_str, demag_fg = "CLEAR",       C["grey"]
+        elif demag < 0.25: demag_str, demag_fg = "MINOR LOSS",  C["amber"]
+        elif demag < 0.60: demag_str, demag_fg = "DEGRADED",    C["orange"]
+        else:              demag_str, demag_fg = "SEVERE",       C["red"]
+
+        # ── Head wear (combined) ──────────────────────────────────────────
+        wear_score = shed * 0.5 + demag * 0.3 + dropout_r * 0.2
+        if wear_score < 0.05:  wear_str, wear_fg = "NOMINAL",      C["grey"]
+        elif wear_score < 0.2: wear_str, wear_fg = "MINOR WEAR",   C["amber"]
+        elif wear_score < 0.5: wear_str, wear_fg = "DEGRADED",     C["orange"]
+        else:                  wear_str, wear_fg = "SEVERE DAMAGE",C["red"]
+
+        # ── Active effects summary ────────────────────────────────────────
+        fx = []
+        if wow > 0.05:     fx.append(f"WOW:{wow:.2f}")
+        if flutter > 0.01: fx.append(f"FLT:{flutter:.2f}")
+        if scrape > 0.01:  fx.append(f"SCR:{scrape:.2f}")
+        if bark > 0.001:   fx.append(f"BRK:{bark:.3f}")
+        if asper > 0.01:   fx.append(f"ASP:{asper:.2f}")
+        if crosstk > 0.01: fx.append(f"XTK:{crosstk:.2f}")
+        if print_v > 0.01: fx.append(f"PRT:{print_v:.2f}")
+        if shed > 0.05:    fx.append("SHED")
+        if demag > 0.05:   fx.append("DEMAG")
+        if conflict > 0.1: fx.append(f"CONFLICT:{conflict:.2f}")
+        fx_str = "  ".join(fx) if fx else "BYPASS"
+        fx_fg  = C["red"] if conflict > 0.2 or shed > 0.5 or demag > 0.5 else                  C["orange"] if fx else C["grey"]
+
+        # ── State string ──────────────────────────────────────────────────
+        tick  = int(cur_time * 8) % 2
+        spin  = ["◆", "◇"]
 
         if self.is_rewinding:
-            state_str  = f"{spin[tick]} REWINDING"
-            state_fg   = C["cyan"]
-            ips_str    = f"◀◀ {ips_set * 40.0:06.2f}"
-            ips_fg     = C["cyan"]
-            reel_str   = f"SUPPLY: {supply_s}  TAKEUP: {takeup_s}"
-            reel_fg    = C["cyan"]
+            state_str = f"{spin[tick]} REWINDING"; state_fg = C["cyan"]
+            ips_str   = f"◀◀ {ips_set * 40.0:06.2f}"; ips_fg = C["cyan"]
         elif self.is_ffing:
-            state_str  = f"{spin[tick]} FAST FWD"
-            state_fg   = C["green"]
-            ips_str    = f"▶▶ {ips_set * 40.0:06.2f}"
-            ips_fg     = C["green"]
-            reel_str   = f"SUPPLY: {supply_s}  TAKEUP: {takeup_s}"
-            reel_fg    = C["green"]
+            state_str = f"{spin[tick]} FAST FWD";  state_fg = C["green"]
+            ips_str   = f"▶▶ {ips_set * 40.0:06.2f}"; ips_fg = C["green"]
         elif self.engine.is_playing:
-            actual     = ips_set * inst_spd
-            rev        = self.engine.is_reversed
-            arrow      = "◀" if rev else "▶"
+            actual = ips_set * inst_spd
+            rev    = self.engine.is_reversed
+            arrow  = "◀" if rev else "▶"
             if conflict > 0.1:
-                state_str = f"{spin[tick]} FIGHTING"
-                state_fg  = C["red"]
+                state_str = f"{spin[tick]} FIGHTING"; state_fg = C["red"]
             elif abs(spd_dev_pct) > 8:
-                state_str = f"{spin[tick]} UNSTABLE"
-                state_fg  = C["red"]
+                state_str = f"{spin[tick]} UNSTABLE"; state_fg = C["red"]
             elif rev:
-                state_str = f"{spin[tick]} REVERSE"
-                state_fg  = C["orange"]
+                state_str = f"{spin[tick]} REVERSE";  state_fg = C["orange"]
             else:
-                state_str = f"{spin[tick]} RUNNING"
-                state_fg  = C["amber"]
-            ips_str    = f"{arrow} {actual:06.3f}"
-            ips_fg     = C["orange"] if rev else C["amber"]
-            reel_str   = f"SUPPLY: {supply_s}  TAKEUP: {takeup_s}"
-            reel_fg    = ips_fg
+                state_str = f"{spin[tick]} RUNNING";  state_fg = C["amber"]
+            ips_str = f"{arrow} {actual:06.3f}"; ips_fg = C["orange"] if rev else C["amber"]
         else:
-            state_str  = "  IDLE"
-            state_fg   = C["grey"]
-            ips_str    = "▶ 00.000"
-            ips_fg     = C["grey"]
-            reel_str   = f"SUPPLY: {supply_s}  TAKEUP: {takeup_s}"
-            reel_fg    = C["grey"]
+            state_str = "  IDLE"; state_fg = C["grey"]
+            ips_str   = "▶ 00.000"; ips_fg = C["grey"]
+
+        reel_str = f"SUPPLY: {supply_s}  TAKEUP: {takeup_s}"
+        reel_fg  = ips_fg if self.engine.is_playing else C["grey"]
 
         # ── Apply to widgets ───────────────────────────────────────────────
         self.lbl_sys_state.config(
-            text=f"STATE    : {state_str:<14s}  {pos_str}",
-            fg=state_fg)
+            text=f"STATE    : {state_str}",  fg=state_fg)
         self.lbl_sys_speed.config(
             text=f"SPEED    : {ips_set * (inst_spd if self.engine.is_playing else 1.0):06.3f} IPS",
             fg=ips_fg if self.engine.is_playing else C["grey"])
         self.lbl_sys_dev.config(
-            text=f"DEVIATION: {spd_dev_pct:+.2f}%  CONFLICT: {conflict:.2f}",
+            text=f"DEVIATION: {spd_dev_pct:+.2f}%  CONFLICT:{conflict:.2f}",
             fg=(C["red"] if abs(spd_dev_pct) > 8 or conflict > 0.2
-                else C["amber"] if abs(spd_dev_pct) > 2
-                else C["grey"]))
+                else C["amber"] if abs(spd_dev_pct) > 2 else C["grey"]))
+        self.lbl_sys_pos.config(
+            text=f"POSITION : {pos_str}  REMAIN: {rem_str}",
+            fg=C["amber"] if self.engine.is_playing else C["grey"])
 
-        self.lbl_volt_bar.config(
-            text=f"VOLT  [{bar_str}]",
-            fg=volt_fg)
+        self.lbl_volt_bar.config(text=f"VOLT  [{bar_str}]", fg=volt_fg)
         self.lbl_volt_val.config(
-            text=f"PSU   : {volt_state:<10s} {volt_v:+.2f}V",
-            fg=volt_fg)
+            text=f"PSU   : {volt_state:<10s} {volt_v:+.2f}V", fg=volt_fg)
+
+        self.lbl_sig_level.config(
+            text=f"SIGNAL   : {sig_str:<8s}  NOISE:{noise_str}", fg=sig_fg)
+        self.lbl_oxide.config(
+            text=f"OXIDE    : {oxide_n:<6s}  SAT:{sat_str}", fg=sat_fg)
+        self.lbl_bias_state.config(
+            text=f"BIAS     : {bias_str}  ({bias_v:.2f})", fg=bias_fg)
 
         self.lbl_drop_count.config(
-            text=f"DROPOUT  : #{drop_n:<5d} LAST:{drop_last_str}",
-            fg=(C["orange"] if drop_n > 0 else C["grey"]))
-        self.lbl_head_temp.config(
-            text=f"HEAD WEAR: {wear_str}",
-            fg=wear_fg)
+            text=f"DROPOUTS : #{drop_n:<5d} LAST:{drop_last_str}",
+            fg=C["orange"] if drop_n > 0 else C["grey"])
+        self.lbl_shed_state.config(text=f"BINDER   : {shed_str}", fg=shed_fg)
+        self.lbl_demag_state.config(text=f"DEMAG    : {demag_str}", fg=demag_fg)
+        self.lbl_head_temp.config(text=f"HEAD WEAR: {wear_str}", fg=wear_fg)
 
-        # ── IPS counter + reel (right block, unchanged) ───────────────────
+        self.lbl_fx_chain.config(text=f"FX  {fx_str[:52]}", fg=fx_fg)
+
+        # ── Reel counter (right panel) ─────────────────────────────────────
         self.lbl_ips.config(text=ips_str, fg=ips_fg)
         self.lbl_reel.config(text=reel_str, fg=reel_fg)
 

@@ -9,6 +9,7 @@ class ElectronicComponents:
         self.azimuth_state      = 0.0
         self._azimuth_delay_buf = np.zeros((128, 2))  # bigger buffer = more shift headroom
         self._diff_last         = np.zeros(2)
+        self._pink_state        = np.zeros(2)  # leaky integrator state across blocks
 
     def reset(self):
         self._bump_f            = None
@@ -16,6 +17,7 @@ class ElectronicComponents:
         self.azimuth_state      = 0.0
         self._azimuth_delay_buf = np.zeros((128, 2))
         self._diff_last         = np.zeros(2)
+        self._pink_state        = np.zeros(2)
 
     def _apply_filter(self, fkey, new_b, new_a, signal):
         new_b   = np.asarray(new_b, dtype=float)
@@ -37,7 +39,12 @@ class ElectronicComponents:
         return out
 
     def process(self, proc, frames, current_time, speed_factor, sticky_drag, params):
-        t_arr = current_time + np.arange(frames) / 44100.0
+        # proc may be shorter than `frames` when oversampling trims the last
+        # block or when the silence buffer in pre-roll terminates early.
+        # Build t_arr from the actual output length so all additive signals
+        # (hum, hiss) always broadcast cleanly against proc.
+        actual = len(proc)
+        t_arr = current_time + np.arange(actual) / 44100.0
 
         # 1. HEAD BUMP
         bump_amt = params.get('head_bump', 0.0)
@@ -109,17 +116,18 @@ class ElectronicComponents:
             proc = proc + hum
 
         # 6. PINK HISS TILT — leaky-integrator 1/f colouring
-        # 1-pole IIR (pole=0.99) gives proper pink/brown tilt, bounded amplitude,
-        # no block-boundary accumulation artefacts from cumsum.
+        # 1-pole IIR (pole=0.99) — state preserved across blocks so there
+        # is no DC jump / click at every block boundary.
         hiss_color = params.get('hiss_color', 0.0)
         if hiss_color > 0 and dynamic_hiss > 0:
             n, ch = proc.shape
             white = np.random.normal(0, dynamic_hiss * 0.15, (n, ch))
             pink  = np.zeros((n, ch))
-            s     = np.zeros(ch)
+            s     = self._pink_state.copy()   # continue from last block
             for i in range(n):
                 s       = 0.99 * s + white[i]
                 pink[i] = s
+            self._pink_state = s.copy()       # save for next block
             pink -= pink.mean(axis=0)
             proc  = proc + pink * hiss_color
 
