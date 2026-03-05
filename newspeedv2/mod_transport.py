@@ -210,7 +210,16 @@ class TransportDynamics:
         target_speed = max(0.02, target_speed)
 
         # --- Oscillations (wow/flutter) -------------------------------------
+        # All frequency components scale with IPS — physical rotating parts
+        # (rollers, reels, capstan) spin proportionally faster at higher speeds,
+        # shifting their resonant frequencies upward.
+        #
+        # IPS reference: 15 ips is the canonical "studio" speed all specs are
+        # written for.  ips_ratio normalises every frequency to that baseline.
+        ips_ratio = ips / 15.0   # >1 at 30ips, <1 at 7.5ips, etc.
+
         roller_radius  = 0.025
+        # roller_freq already derives from ips — naturally correct ✓
         roller_freq    = (ips * 0.0254) / (2 * np.pi * roller_radius)
         roller_wow     = (params.get('wow_dep', 0.2) / 100.0) * self._roller_ecc * 50 \
                          * np.sin(2 * np.pi * roller_freq * t_arr + self._roller_phase)
@@ -219,9 +228,15 @@ class TransportDynamics:
         supply_flutter = (params.get('wow_dep', 0.2) / 200.0) * (progress * 0.5 + 0.1) \
                          * np.sin(2 * np.pi * reel_freq * t_arr + self._supply_phase)
 
+        # Flutter: capstan resonance (~15 Hz at 15ips) and pinch-roller
+        # resonance (~7.3 Hz at 15ips).  Both frequencies scale with IPS.
+        # Amplitude scales inversely with speed: higher tape tension at fast
+        # speeds damps mechanical flutter (well-documented in IEC 60386 data).
+        # Empirical fit: amplitude ∝ 1/√ips_ratio — halving at 4× speed.
         flutter_base   = params.get('flutter_dep', 0.05) / 150.0
-        flutter        = flutter_base * np.sin(2 * np.pi * 15.0 * t_arr)
-        flutter       += flutter_base * 0.3 * np.sin(2 * np.pi * 7.3 * t_arr + 0.7)
+        flutter_amp    = flutter_base / max(ips_ratio ** 0.5, 0.1)
+        flutter        = flutter_amp * np.sin(2 * np.pi * 15.0 * ips_ratio * t_arr)
+        flutter       += flutter_amp * 0.3 * np.sin(2 * np.pi * 7.3 * ips_ratio * t_arr + 0.7)
 
         # Scrape flutter is NOT modelled as a speed variation — it's a direct
         # amplitude/phase modulation applied to the audio signal in the engine.
@@ -229,17 +244,15 @@ class TransportDynamics:
         scrape         = np.zeros(frames)
 
         # --- Motor voltage drift (replaces Brownian random walk) -------------
-        # The random-walk surge_state diverges between parallel workers because
-        # each runs independent np.random calls.  Replacing it with a seeded
-        # deterministic LFO sum gives the same perceptual "unstable motor" effect
-        # while being fully reproducible from absolute time position.
-        # Three slow sinusoids at irrational frequency ratios produce a
-        # pseudo-random but continuous drift pattern.
+        # Drift frequencies also scale weakly with IPS: a faster-spinning motor
+        # has slightly higher-frequency voltage ripple from the commutator.
+        # Amplitude scales inversely with IPS — faster tape = better regulation
+        # (higher back-EMF makes the motor self-regulating).
         health      = params.get('motor_health', 0.5)
-        drift_amp   = health * 0.008
-        drift_slow  = drift_amp * np.sin(2 * np.pi * 0.031 * t_arr + self._roller_phase * 1.3)
-        drift_mid   = drift_amp * 0.5 * np.sin(2 * np.pi * 0.073 * t_arr + self._supply_phase)
-        drift_fast  = drift_amp * 0.25 * np.sin(2 * np.pi * 0.157 * t_arr + 2.1)
+        drift_amp   = health * 0.008 / max(ips_ratio ** 0.3, 0.2)
+        drift_slow  = drift_amp * np.sin(2 * np.pi * 0.031 * ips_ratio * t_arr + self._roller_phase * 1.3)
+        drift_mid   = drift_amp * 0.5 * np.sin(2 * np.pi * 0.073 * ips_ratio * t_arr + self._supply_phase)
+        drift_fast  = drift_amp * 0.25 * np.sin(2 * np.pi * 0.157 * ips_ratio * t_arr + 2.1)
         drift_array = drift_slow + drift_mid + drift_fast
 
         # --- Dropout events -------------------------------------------------

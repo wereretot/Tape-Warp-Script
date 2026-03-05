@@ -387,6 +387,7 @@ class ForensicTapeStudio:
         self.controls     = {}
         self.is_rewinding = False
         self.is_ffing     = False
+        self._shuttle_speed = 40.0   # current shuttle speed multiplier (cycles on repeat press)
         self._syncing     = False   # suppresses per-slider sync() during batch preset apply
 
         # Render options
@@ -588,8 +589,9 @@ class ForensicTapeStudio:
         cb = ttk.Combobox(top_bar, textvariable=self.preset_var, values=presets,
                           state="readonly", width=28)
         cb.pack(side="left", padx=6)
+        self.preset_cb = cb   # keep reference for dynamic updates
         cb.bind("<<ComboboxSelected>>",
-                lambda e: self.apply_builtin_preset(self.preset_var.get()))
+                lambda e: self._on_preset_selected(self.preset_var.get()))
 
         tk.Label(top_bar, text="OXIDE:", bg=C["bg2"],
                  fg=C["grey_lt"], font=("Consolas", 9), padx=8).pack(side="left")
@@ -599,6 +601,17 @@ class ForensicTapeStudio:
                                 state="readonly", width=8)
         oxide_cb.pack(side="left", padx=2)
         oxide_cb.bind("<<ComboboxSelected>>", lambda e: self.sync())
+
+        # ── Preset import / export / save ────────────────────────────────────
+        self._btn(top_bar, "IMPORT", self.import_preset,
+                  bg=C["bg3"], fg=C["cyan"],
+                  font=("Consolas", 9)).pack(side="left", padx=(12, 2))
+        self._btn(top_bar, "EXPORT", self.export_preset,
+                  bg=C["bg3"], fg=C["amber"],
+                  font=("Consolas", 9)).pack(side="left", padx=2)
+        self._btn(top_bar, "SAVE AS", self.save_preset_as,
+                  bg=C["bg3"], fg=C["purple"],
+                  font=("Consolas", 9)).pack(side="left", padx=2)
 
         tk.Frame(self.root, bg=C["border"], height=1).pack(fill="x", padx=12)
 
@@ -1427,6 +1440,164 @@ class ForensicTapeStudio:
         threading.Thread(target=_run, daemon=True, name="RenderThread").start()
 
     # ── Presets ──────────────────────────────────────────────────────────────────
+    def _on_preset_selected(self, name):
+        """Route combobox selection to built-in or session preset."""
+        if name.startswith("[+] "):
+            # Session preset saved this run
+            key = name[4:]
+            sp = getattr(self, '_session_presets', {})
+            if key in sp:
+                self._apply_preset_dict(sp[key], key)
+            else:
+                log_ui.warning(f"Session preset '{key}' not found")
+        else:
+            self.apply_builtin_preset(name)
+
+    # ── Preset import / export / save-as ────────────────────────────────────
+
+    _PRESET_VERSION = 1   # bump when format changes
+
+    def _current_preset_dict(self):
+        """Return a dict of all current control values, ready for JSON."""
+        data = {
+            "__version__":  self._PRESET_VERSION,
+            "__app__":      "ForensicTapeStudio",
+            "oxide_type":   self.oxide_var.get(),
+        }
+        for key, var in self.controls.items():
+            data[key] = round(float(var.get()), 7)
+        return data
+
+    def _apply_preset_dict(self, data, name="(imported)"):
+        """Apply a preset dict (from JSON) to all controls and the engine."""
+        if data.get("__app__") != "ForensicTapeStudio":
+            messagebox.showerror("Bad Preset",
+                "This file doesn't look like a Forensic Tape Studio preset.")
+            return False
+
+        # Apply oxide first (doesn't go through controls dict)
+        oxide = data.get("oxide_type", "Fe2O3")
+        if oxide in ("Fe2O3", "CrO2", "Metal", "FeCo"):
+            self.oxide_var.set(oxide)
+
+        self._syncing = True
+        try:
+            for key, var in self.controls.items():
+                if key in data:
+                    try:
+                        var.set(float(data[key]))
+                    except (ValueError, TypeError):
+                        log_ui.warning(f"Preset import: bad value for '{key}': {data[key]!r}")
+        finally:
+            self._syncing = False
+
+        self.sync()
+        log_ui.info(f"Preset applied: {name}")
+        return True
+
+    def export_preset(self):
+        """Save current settings to a .ftsp (JSON) file."""
+        path = filedialog.asksaveasfilename(
+            title="Export Preset",
+            defaultextension=".ftsp",
+            filetypes=[("Tape Preset", "*.ftsp"), ("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        import json
+        data = self._current_preset_dict()
+        # Embed the name from the combobox if one is selected
+        data["__name__"] = self.preset_var.get() or "Custom"
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            log_ui.info(f"Preset exported → {path}")
+            messagebox.showinfo("Export Complete",
+                                f"Preset saved to:\n{path}")
+        except OSError as e:
+            messagebox.showerror("Export Failed", str(e))
+
+    def import_preset(self):
+        """Load a .ftsp (JSON) preset file and apply it."""
+        path = filedialog.askopenfilename(
+            title="Import Preset",
+            filetypes=[("Tape Preset", "*.ftsp"), ("JSON", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        import json
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            messagebox.showerror("Import Failed", f"Could not read preset:\n{e}")
+            return
+
+        name = data.get("__name__", path)
+        if not self._apply_preset_dict(data, name):
+            return
+
+        # Add to combobox if it's a named preset not already in the list
+        if name and name not in ("Custom", "") and name not in self.preset_var["values"]:
+            new_vals = list(self.preset_var["values"]) + [f"[+] {name}"]
+            self.preset_cb.config(values=new_vals)
+            self.preset_var.set(f"[+] {name}")
+        else:
+            self.preset_var.set("")
+
+    def save_preset_as(self):
+        """Name the current settings and add them to the session's preset list."""
+        # Ask for a name via a simple dialog
+        win = tk.Toplevel(self.root)
+        win.title("Save Preset As")
+        win.configure(bg=C["bg"])
+        win.geometry("380x140")
+        win.resizable(False, False)
+        win.grab_set()
+        win.transient(self.root)
+
+        tk.Label(win, text="Preset name:", bg=C["bg"], fg=C["white"],
+                 font=("Consolas", 10)).pack(padx=20, pady=(18, 4), anchor="w")
+        name_var = tk.StringVar(value=self.preset_var.get() or "My Preset")
+        entry = tk.Entry(win, textvariable=name_var, bg=C["bg3"], fg=C["white"],
+                         insertbackground=C["white"], font=("Consolas", 11),
+                         relief="flat", bd=0)
+        entry.pack(fill="x", padx=20, pady=4)
+        entry.select_range(0, "end")
+        entry.focus_set()
+
+        btn_row = tk.Frame(win, bg=C["bg"])
+        btn_row.pack(fill="x", padx=20, pady=12)
+
+        def _save():
+            name = name_var.get().strip()
+            if not name:
+                return
+            win.destroy()
+            # Store in session dict
+            if not hasattr(self, '_session_presets'):
+                self._session_presets = {}
+            self._session_presets[name] = self._current_preset_dict()
+            self._session_presets[name]["__name__"] = name
+            # Add to combobox (mark with [+] to distinguish from built-ins)
+            tag = f"[+] {name}"
+            cur_vals = list(self.preset_cb["values"])
+            if tag not in cur_vals:
+                cur_vals.append(tag)
+                self.preset_cb.config(values=cur_vals)
+            self.preset_var.set(tag)
+            log_ui.info(f"Session preset saved: {name}")
+
+        self._btn(btn_row, "SAVE", _save,
+                  bg=C["purple_dim"], fg=C["purple"],
+                  font=("Consolas", 10, "bold")).pack(side="right", padx=4)
+        self._btn(btn_row, "CANCEL", win.destroy,
+                  bg=C["bg3"], fg=C["grey_lt"],
+                  font=("Consolas", 10)).pack(side="right", padx=4)
+
+        win.bind("<Return>", lambda e: _save())
+        win.bind("<Escape>", lambda e: win.destroy())
+
     def apply_builtin_preset(self, name):
         log_ui.info(f"Applying preset: {name}")
 
@@ -2169,6 +2340,7 @@ class ForensicTapeStudio:
         self.engine.is_playing = False
         self.is_rewinding      = False
         self.is_ffing          = False
+        self._shuttle_speed    = self._SHUTTLE_SPEEDS[0]
         self.btn_play.config(text="▶  PLAY",     fg=C["amber"],  state="normal")
         self.btn_rev_play.config(text="◀  REVERSE", fg=C["orange"], state="normal")
         self.btn_rewind.config(text="◀◀  REWIND", fg=C["cyan"])
@@ -2224,9 +2396,12 @@ class ForensicTapeStudio:
 
     def _audio_thread(self):
         log_transport.debug("Audio thread started")
+        reached_end = [False]
+
         def cb(out, frames, time_info, status):
             d = self.engine.dsp_process(frames)
             if d is None:
+                reached_end[0] = True
                 raise sd.CallbackStop
             out[:] = d
 
@@ -2236,43 +2411,68 @@ class ForensicTapeStudio:
                 sd.sleep(50)
 
         log_transport.debug("Audio thread: stream ended")
+
+        if not reached_end[0]:
+            # Stopped externally (_stop_all or new play press) — don't touch
+            # button state or play_head; the caller already handled everything.
+            return
+
+        # Tape ran out naturally — reset so PLAY works immediately from start.
+        log_transport.info("End of tape — resetting play head to start")
         self.engine.is_playing = False
         if self.engine.is_reversed:
-            self.engine.set_reverse(False)
+            self.engine.set_reverse(False, force_reset=True)
+        else:
+            with self.engine.lock:
+                self.engine.reset_state()
+
         self.root.after(0, lambda: [
             self.btn_play.config(text="▶  PLAY",     fg=C["amber"]),
             self.btn_rev_play.config(text="◀  REVERSE", fg=C["orange"]),
         ])
 
     # ── Rewind ──────────────────────────────────────────────────────────────────
+    # ── Shuttle speed tiers ───────────────────────────────────────────────────
+    _SHUTTLE_SPEEDS = [40.0, 80.0, 160.0]   # ×  multiples of base IPS
+    _SHUTTLE_LABELS = ["40×", "80×", "160×"]
+
     def toggle_rewind(self):
         if self.engine.audio_data is None:
             return
         if self.is_rewinding:
-            log_transport.info("REWIND stop")
-            self.is_rewinding = False
-            self.btn_rewind.config(text="◀◀  REWIND", fg=C["cyan"])
+            # Already rewinding — cycle to next speed tier
+            cur = self._SHUTTLE_SPEEDS.index(self._shuttle_speed) \
+                  if self._shuttle_speed in self._SHUTTLE_SPEEDS else 0
+            self._shuttle_speed = self._SHUTTLE_SPEEDS[(cur + 1) % len(self._SHUTTLE_SPEEDS)]
+            lbl = self._SHUTTLE_LABELS[(cur + 1) % len(self._SHUTTLE_LABELS)]
+            log_transport.info(f"REWIND speed → {lbl}")
+            self.btn_rewind.config(text=f"■  RWD {lbl}", fg=C["red"])
         else:
             log_transport.info("REWIND start")
             self._stop_all()
+            self._shuttle_speed = self._SHUTTLE_SPEEDS[0]
             self.is_rewinding = True
-            self.btn_rewind.config(text="■  STOP RWD", fg=C["red"])
+            self.btn_rewind.config(text=f"■  RWD {self._SHUTTLE_LABELS[0]}", fg=C["red"])
             threading.Thread(target=self._shuttle_thread,
                              args=("rewind",), daemon=True, name="Rewind").start()
 
-    # ── Fast Forward ─────────────────────────────────────────────────────────
     def toggle_ff(self):
         if self.engine.audio_data is None:
             return
         if self.is_ffing:
-            log_transport.info("FF stop")
-            self.is_ffing = False
-            self.btn_ff.config(text="FF  ▶▶", fg=C["green"])
+            # Already fast-forwarding — cycle to next speed tier
+            cur = self._SHUTTLE_SPEEDS.index(self._shuttle_speed) \
+                  if self._shuttle_speed in self._SHUTTLE_SPEEDS else 0
+            self._shuttle_speed = self._SHUTTLE_SPEEDS[(cur + 1) % len(self._SHUTTLE_SPEEDS)]
+            lbl = self._SHUTTLE_LABELS[(cur + 1) % len(self._SHUTTLE_LABELS)]
+            log_transport.info(f"FF speed → {lbl}")
+            self.btn_ff.config(text=f"■  FF {lbl}", fg=C["red"])
         else:
             log_transport.info("FF start")
             self._stop_all()
+            self._shuttle_speed = self._SHUTTLE_SPEEDS[0]
             self.is_ffing = True
-            self.btn_ff.config(text="■  STOP FF", fg=C["red"])
+            self.btn_ff.config(text=f"■  FF {self._SHUTTLE_LABELS[0]}", fg=C["red"])
             threading.Thread(target=self._shuttle_thread,
                              args=("ff",), daemon=True, name="FastFwd").start()
 
@@ -2281,6 +2481,7 @@ class ForensicTapeStudio:
         """
         Shared transport thread for both rewind and fast-forward.
         direction = "rewind" | "ff"
+        Pressing the button again while running cycles through speed tiers.
         Produces authentic mechanical squeal pitched to reel diameter and speed.
         """
         log_transport.debug(f"Shuttle thread started ({direction})")
@@ -2294,7 +2495,6 @@ class ForensicTapeStudio:
         btn          = self.btn_rewind if direction == "rewind" else self.btn_ff
         btn_idle_txt = "◀◀  REWIND" if direction == "rewind" else "FF  ▶▶"
         btn_idle_fg  = C["cyan"]     if direction == "rewind" else C["green"]
-        # Multiplier: rewind moves backward, FF moves forward
         direction_sign = -1 if direction == "rewind" else +1
 
         def cb(out, frames, time_info, status):
@@ -2307,7 +2507,8 @@ class ForensicTapeStudio:
                 total = self.engine.total_samples
 
             # Check end conditions
-            at_end   = (direction == "rewind" and pos <= 0) or                        (direction == "ff"     and pos >= total - block)
+            at_end = (direction == "rewind" and pos <= 0) or \
+                     (direction == "ff"     and pos >= total - block)
             if at_end:
                 clamp = 0.0 if direction == "rewind" else float(total - 1)
                 with self.engine.lock:
@@ -2317,38 +2518,37 @@ class ForensicTapeStudio:
                 self.root.after(0, lambda: btn.config(text=btn_idle_txt, fg=btn_idle_fg))
                 raise sd.CallbackStop
 
-            step    = (base_ips / 15.0) * SR * 40.0 * frames / SR * direction_sign
+            # Read current speed multiplier (may change if user presses button again)
+            speed_mult = self._shuttle_speed
+            step    = (base_ips / 15.0) * SR * speed_mult * frames / SR * direction_sign
             new_pos = float(np.clip(pos + step, 0.0, float(total - 1)))
             with self.engine.lock:
                 self.engine.play_head    = new_pos
                 self.engine.current_time = new_pos / SR
 
-            # Squeal pitch: depends on which reel is under tension
-            # Rewind: supply reel shrinks (higher pitch as it empties)
-            # FF:     takeup reel grows (lower pitch as it fills)
-            progress    = float(new_pos / max(total, 1))
+            # Squeal pitch scales with shuttle speed — faster = higher pitch
+            progress = float(new_pos / max(total, 1))
             if direction == "rewind":
-                reel_load = 1.0 + (1.0 - progress) * 1.5   # higher pitch near end
+                reel_load = 1.0 + (1.0 - progress) * 1.5
             else:
-                reel_load = 1.0 + progress * 1.5            # higher pitch near end
+                reel_load = 1.0 + progress * 1.5
 
+            speed_ratio = speed_mult / 40.0   # normalise to base tier
             squeal_hz  = float(np.clip(
-                1800.0 * (base_ips / 15.0) * reel_load, 150, 16000))
+                1800.0 * (base_ips / 15.0) * reel_load * (speed_ratio ** 0.5),
+                150, 16000))
             phase_inc  = 2 * np.pi * squeal_hz / SR
             phases     = squeal_phase + np.arange(frames) * phase_inc
-            # Richer harmonic content than a simple sine
             squeal_sig = (np.sin(phases)         * 0.50
                         + np.sin(phases * 3)     * 0.15
                         + np.sin(phases * 5)     * 0.07
                         + np.sin(phases * 7)     * 0.03
-                        + np.sin(phases * 0.5)   * 0.08     # sub-harmonic flutter
-                        + np.random.normal(0, 0.008, frames))  # mechanical noise
+                        + np.sin(phases * 0.5)   * 0.08
+                        + np.random.normal(0, 0.008, frames))
             squeal_phase = (squeal_phase + frames * phase_inc) % (2 * np.pi)
 
-            # Amplitude envelope: louder in the middle of the reel travel
             env_progress = progress if direction == "ff" else (1.0 - progress)
-            amp = 0.20 * np.sin(np.pi * env_progress) + 0.04
-            # Stereo: slight pan toward supply reel side
+            amp  = 0.20 * np.sin(np.pi * env_progress) + 0.04
             pan_l = 1.00 if direction == "rewind" else 0.92
             pan_r = 0.92 if direction == "rewind" else 1.00
             out[:] = (squeal_sig * amp)[:, None] * np.array([[pan_l, pan_r]])
