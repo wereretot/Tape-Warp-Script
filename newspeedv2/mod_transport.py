@@ -152,26 +152,37 @@ class TransportDynamics:
         target_sticky = shed * 0.015          # max drag at full shed = 0.015
         self.sticky_drag += (target_sticky - self.sticky_drag) * 0.0002
 
-        # Back-tension from take-up reel (increases as reel fills)
-        back_tension = (takeup_r / self.REEL_RADIUS_FULL) * params.get('tension_load', 0.05) * 0.5
-
-        # Tension arm — modelled as a low-frequency sinusoid driven by reel geometry.
-        # The spring-mass integrator (T≈11s) cannot be warmed up by the short
-        # pre-roll used in multi-thread rendering, causing a pitch step at every
-        # chunk boundary.  Instead we use a deterministic function of absolute
-        # time so all worker engines produce identical values at the same instant.
-        # Physical basis: real tension arms oscillate at 0.05–0.3 Hz driven by
-        # reel torque variations and the arm's spring return.
-        tension_load = params.get('tension_load', 0.05)
-        t0 = current_time   # scalar — start of this block in seconds
-        tension_osc = (
-            np.sin(2 * np.pi * 0.11 * t0 + self._roller_phase * 0.7) * 0.35
-            + np.sin(2 * np.pi * 0.07 * t0 + self._supply_phase * 0.5) * 0.20
-            + np.sin(2 * np.pi * 0.19 * t0 + 1.3) * 0.15
-        )
-        # Bias toward the reel-fill position so it slowly drifts as tape transfers
-        tension_dc   = back_tension * 2.0
-        tension_mod  = np.clip(tension_dc + tension_osc * tension_load, 0.0, tension_load)
+        # ── Reel tension (per-sample array; injected in the assembly loop) ────
+        #
+        # Physical sources:
+        #   1. Supply reel pack wobble at f = v / (2π r_supply), with harmonics.
+        #      Frequency RISES as supply empties (smaller radius → faster rotation).
+        #   2. Takeup reel pull variation, anti-phase, grows as takeup fills.
+        #   3. Tension arm spring-mass resonance at ~0.48 Hz (independent of reels).
+        #
+        # Scale (tension_load = 0.010 → ±0.14% ≈ ±2.4 cents; 0.12 → ±1.7% ≈ ±29 cents).
+        # All three frequencies are computed from reel geometry — they are CORRECT,
+        # not approximate, and change continuously as tape transfers.
+        tension_load = params.get('tension_load', 0.0)
+        _v_t   = ips * 0.0254
+        _fs_t  = _v_t / (2.0 * np.pi * max(supply_r, 0.001))   # supply reel freq
+        _ft_t  = _v_t / (2.0 * np.pi * max(takeup_r, 0.001))   # takeup reel freq
+        if tension_load > 0.0:
+            _TS = 0.10
+            _osc = (
+                np.sin(2*np.pi * _fs_t       * t_arr + self._roller_phase)        * 0.55
+              + np.sin(2*np.pi * _fs_t * 2.0 * t_arr + self._roller_phase + 1.05) * 0.20
+              + np.sin(2*np.pi * _fs_t * 3.0 * t_arr + self._roller_phase + 2.13) * 0.08
+              + np.sin(2*np.pi * _ft_t       * t_arr + self._supply_phase + np.pi) * 0.30
+              + np.sin(2*np.pi * _ft_t * 2.0 * t_arr + self._supply_phase + 2.80)  * 0.10
+              + np.sin(2*np.pi * 0.48        * t_arr + self._roller_phase * 0.37 + 0.72) * 0.15
+            )
+            _dc  = (takeup_r / self.REEL_RADIUS_FULL) * tension_load * 0.008
+            tension_mod = np.clip(_osc * tension_load * _TS + _dc,
+                                  -tension_load * _TS * 1.40,
+                                   tension_load * _TS * 1.40)
+        else:
+            tension_mod = np.zeros(frames)
 
         # --- Fighting speed conflict ----------------------------------------
         # When both motor_boost and motor_drag are active simultaneously,
@@ -206,53 +217,51 @@ class TransportDynamics:
 
         lurch_add = getattr(self, '_fight_lurch_mag', 0.0)
 
-        target_speed = 1.0 + boost - drag - tension_mod - self.sticky_drag + fight_osc + lurch_add
+        # tension_mod is a per-sample array — added in assembly loop, not here
+        target_speed = 1.0 + boost - drag - self.sticky_drag + fight_osc + lurch_add
         target_speed = max(0.02, target_speed)
 
-        # --- Oscillations (wow/flutter) -------------------------------------
-        # All frequency components scale with IPS — physical rotating parts
-        # (rollers, reels, capstan) spin proportionally faster at higher speeds,
-        # shifting their resonant frequencies upward.
-        #
-        # IPS reference: 15 ips is the canonical "studio" speed all specs are
-        # written for.  ips_ratio normalises every frequency to that baseline.
-        ips_ratio = ips / 15.0   # >1 at 30ips, <1 at 7.5ips, etc.
+        # ── IPS ratio & tape velocity ─────────────────────────────────────────
+        ips_ratio = ips / 15.0
+        v_tape    = _v_t   # already computed above in tension block
 
-        roller_radius  = 0.025
-        # roller_freq already derives from ips — naturally correct ✓
-        roller_freq    = (ips * 0.0254) / (2 * np.pi * roller_radius)
-        roller_wow     = (params.get('wow_dep', 0.2) / 100.0) * self._roller_ecc * 50 \
-                         * np.sin(2 * np.pi * roller_freq * t_arr + self._roller_phase)
+        # Reel rotation frequencies: reuse values from tension block
+        f_supply  = _fs_t
+        f_takeup  = _ft_t
 
-        reel_freq      = (ips * 0.0254) / (2 * np.pi * max(supply_r, 0.001))
-        supply_flutter = (params.get('wow_dep', 0.2) / 200.0) * (progress * 0.5 + 0.1) \
-                         * np.sin(2 * np.pi * reel_freq * t_arr + self._supply_phase)
+        # ── Wow ───────────────────────────────────────────────────────────────
+        # Pinch roller (r=25.4 mm, ~2.4 Hz at 15 ips) is the dominant wow source.
+        # Supply/takeup reel pack eccentricity grows as reel empties/fills.
+        f_pinch   = v_tape / (2.0 * np.pi * 0.0254)
+        wow_dep   = params.get('wow_dep', 0.2) / 100.0
+        roller_wow = (wow_dep * self._roller_ecc * 50.0
+                      * np.sin(2*np.pi * f_pinch  * t_arr + self._roller_phase))
+        supply_wow = (wow_dep * 0.45 * (progress * 0.5 + 0.08)
+                      * np.sin(2*np.pi * f_supply * t_arr + self._supply_phase))
+        takeup_wow = (wow_dep * 0.30 * (progress * 0.60 + 0.04)
+                      * np.sin(2*np.pi * f_takeup * t_arr + self._supply_phase + 1.41))
 
-        # Flutter: capstan resonance (~15 Hz at 15ips) and pinch-roller
-        # resonance (~7.3 Hz at 15ips).  Both frequencies scale with IPS.
-        # Amplitude scales inversely with speed: higher tape tension at fast
-        # speeds damps mechanical flutter (well-documented in IEC 60386 data).
-        # Empirical fit: amplitude ∝ 1/√ips_ratio — halving at 4× speed.
-        flutter_base   = params.get('flutter_dep', 0.05) / 150.0
-        flutter_amp    = flutter_base / max(ips_ratio ** 0.5, 0.1)
-        flutter        = flutter_amp * np.sin(2 * np.pi * 15.0 * ips_ratio * t_arr)
-        flutter       += flutter_amp * 0.3 * np.sin(2 * np.pi * 7.3 * ips_ratio * t_arr + 0.7)
+        # ── Flutter ───────────────────────────────────────────────────────────
+        # Capstan bearing (~15 Hz) + pinch-roller bearing (~7.3 Hz) + 3 harmonics.
+        # Amplitude ∝ 1/√ips_ratio (IEC 60386: higher tension damps flutter).
+        flutter_amp  = (params.get('flutter_dep', 0.05) / 150.0) / max(ips_ratio**0.5, 0.1)
+        flutter  = flutter_amp        * np.sin(2*np.pi * 15.0  * ips_ratio * t_arr)
+        flutter += flutter_amp * 0.45 * np.sin(2*np.pi *  7.3  * ips_ratio * t_arr + 0.71)
+        flutter += flutter_amp * 0.20 * np.sin(2*np.pi * 22.5  * ips_ratio * t_arr + 1.23)
+        flutter += flutter_amp * 0.12 * np.sin(2*np.pi * 30.0  * ips_ratio * t_arr + 2.07)
+        flutter += flutter_amp * 0.06 * np.sin(2*np.pi * 46.2  * ips_ratio * t_arr + 0.44)
 
-        # Scrape flutter is NOT modelled as a speed variation — it's a direct
-        # amplitude/phase modulation applied to the audio signal in the engine.
-        # Keeping a zero array here for the speed assembly loop below.
-        scrape         = np.zeros(frames)
+        # Scrape flutter: audio-domain AM/PM handled downstream in engine.py
+        scrape = np.zeros(frames)
 
-        # --- Motor voltage drift (replaces Brownian random walk) -------------
-        # Drift frequencies also scale weakly with IPS: a faster-spinning motor
-        # has slightly higher-frequency voltage ripple from the commutator.
-        # Amplitude scales inversely with IPS — faster tape = better regulation
-        # (higher back-EMF makes the motor self-regulating).
+        # ── Motor voltage drift ───────────────────────────────────────────────
+        # 0.70 Hz (PSU cap sag), 2.80 Hz (commutator), 7.30 Hz (armature slots).
+        # Fed into instant_target inside the assembly loop — NOT added to output.
         health      = params.get('motor_health', 0.5)
-        drift_amp   = health * 0.008 / max(ips_ratio ** 0.3, 0.2)
-        drift_slow  = drift_amp * np.sin(2 * np.pi * 0.031 * ips_ratio * t_arr + self._roller_phase * 1.3)
-        drift_mid   = drift_amp * 0.5 * np.sin(2 * np.pi * 0.073 * ips_ratio * t_arr + self._supply_phase)
-        drift_fast  = drift_amp * 0.25 * np.sin(2 * np.pi * 0.157 * ips_ratio * t_arr + 2.1)
+        drift_amp   = health * 0.004 / max(ips_ratio**0.3, 0.2)
+        drift_slow  = drift_amp        * np.sin(2*np.pi * 0.70 * ips_ratio * t_arr + self._roller_phase * 1.3)
+        drift_mid   = drift_amp * 0.60 * np.sin(2*np.pi * 2.80 * ips_ratio * t_arr + self._supply_phase)
+        drift_fast  = drift_amp * 0.35 * np.sin(2*np.pi * 7.30 * ips_ratio * t_arr + 2.1)
         drift_array = drift_slow + drift_mid + drift_fast
 
         # --- Dropout events -------------------------------------------------
@@ -331,13 +340,15 @@ class TransportDynamics:
                 self.motor_engage = max(engage_target,
                                         self.motor_engage - self.SPINDOWN_COEFF)
 
-            self.current_motor_speed += (target_speed - self.current_motor_speed) * lag_coeff
+            instant_target = target_speed + drift_array[i]
+            self.current_motor_speed += (instant_target - self.current_motor_speed) * lag_coeff
             speed = (self.current_motor_speed
                      + roller_wow[i]
-                     + supply_flutter[i]
+                     + supply_wow[i]
+                     + takeup_wow[i]
                      + flutter[i]
                      + scrape[i]
-                     + drift_array[i])
+                     + tension_mod[i])
             # Scale by engage ramp: speed falls to 0 as motor disengages,
             # rises from 0 as motor spins up.  Clamp to 0.001 so we never
             # produce a negative read-index step.

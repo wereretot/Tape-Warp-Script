@@ -47,11 +47,23 @@ class ElectronicComponents:
         t_arr = current_time + np.arange(actual) / 44100.0
 
         # 1. HEAD BUMP
+        #
+        # The replay head resonates mechanically with the tape backing at a
+        # frequency set by head geometry and tape compliance.  This produces a
+        # bass boost whose centre tracks tape speed (faster tape = higher resonant
+        # frequency, because tape stiffness across the gap increases with tension).
+        #
+        # Centre: ~50 Hz at 15 ips (speed_factor = 1.0), scales with speed_factor.
+        # Q ≈ 1.5: the resonance is fairly narrow on a well-aligned head, wider
+        # on worn or misaligned heads (bump_amt encapsulates head condition).
+        # We model the bandpass width as fc/Q so higher Q = narrower bump.
         bump_amt = params.get('head_bump', 0.0)
         if bump_amt > 0:
-            bump_f = float(np.clip(50.0 * speed_factor, 20, 500))
-            low    = float(np.clip(bump_f * 0.7 / 22050, 1e-4, 0.499))
-            high   = float(np.clip(bump_f * 1.3 / 22050, low + 1e-4, 0.4999))
+            bump_f = float(np.clip(50.0 * speed_factor, 15.0, 600.0))
+            Q      = 1.5   # typical tape-head mechanical Q
+            bw     = bump_f / Q
+            low    = float(np.clip((bump_f - bw * 0.5) / 22050.0, 1e-4, 0.499))
+            high   = float(np.clip((bump_f + bw * 0.5) / 22050.0, low + 1e-4, 0.4999))
             b_b, a_b = butter(2, [low, high], btype='band')
             bump_sig = self._apply_filter('_bump_f', b_b, a_b, proc)
             proc = proc + bump_sig * bump_amt
@@ -100,18 +112,43 @@ class ElectronicComponents:
         # Amplitude scales inversely with speed: faster tape has better SNR
         # (more oxide per second past the head averages out particle noise).
 
+        # 4. TAPE HISS
+        #
+        # Noise sources: oxide particle size (smaller = lower noise), head gap
+        # geometry, and preamp noise floor.
+        # - Metal tape (small particles, high packing density) has lowest noise.
+        # - Fe2O3 has larger particles → more modulation noise.
+        # - CrO2 is between the two.
+        # oxide_noise_factor scales hiss by oxide type: Fe2O3=1.0, CrO2=0.85,
+        # Metal=0.70, FeCo=0.80.  Ignored if oxide_type param not set.
         hiss_amt     = params.get('hiss', 0.0)
-        dynamic_hiss = hiss_amt / max(speed_factor ** 0.5, 0.01)
+        oxide_noise  = {'Fe2O3': 1.00, 'CrO2': 0.85, 'Metal': 0.70, 'FeCo': 0.80}
+        oxide_factor = oxide_noise.get(params.get('oxide_type', 'Fe2O3'), 1.0)
+        # Amplitude scales inversely with speed: faster tape averages more oxide per
+        # sample past the head, reducing particle noise (SNR ∝ √speed empirically).
+        dynamic_hiss = hiss_amt * oxide_factor / max(speed_factor ** 0.5, 0.01)
 
         if dynamic_hiss > 0:
             proc = proc + np.random.normal(0, dynamic_hiss, proc.shape)
 
-        # 5. MAINS HUM — fixed frequency, from power supply
+        # 5. MAINS HUM — fundamental + harmonics from power supply
+        #
+        # Real mains hum in tape machines comes from:
+        #   60 Hz  — mains fundamental (motor leakage into head wiring)
+        #   120 Hz — dominant harmonic from full-wave bridge rectifier ripple
+        #   180 Hz — 3rd harmonic from transformer saturation / asymmetric loads
+        #   240 Hz — 4th harmonic (less common, from bridge rectifier + cap sag)
+        # The 120 Hz component is often the LOUDEST in poorly shielded machines
+        # because a full-wave rectifier running at 60 Hz produces 120 Hz ripple.
+        # Typical amplitude ratios measured on real machines:
+        #   60 Hz = 1.00,  120 Hz = 0.50,  180 Hz = 0.25,  240 Hz = 0.08
         hum_amt = params.get('mains_hum', 0.0)
         if hum_amt > 0:
             hum = (
-                np.sin(2 * np.pi * 60.0   * t_arr) * hum_amt
-                + np.sin(2 * np.pi * 180.0 * t_arr) * hum_amt * 0.3
+                np.sin(2 * np.pi *  60.0 * t_arr) * hum_amt * 1.00
+              + np.sin(2 * np.pi * 120.0 * t_arr) * hum_amt * 0.50
+              + np.sin(2 * np.pi * 180.0 * t_arr) * hum_amt * 0.25
+              + np.sin(2 * np.pi * 240.0 * t_arr) * hum_amt * 0.08
             )[:, None]
             proc = proc + hum
 

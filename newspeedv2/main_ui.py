@@ -258,7 +258,7 @@ class Tooltip:
     multiple child widgets — only one popup ever appears.
     """
     HOVER_DELAY = 900   # ms before tooltip appears
-    MAX_WIDTH   = 420   # px — tooltip wraps beyond this
+    MAX_WIDTH   = 600   # px — tooltip wraps beyond this
 
     def __init__(self, widget, title, body):
         self._widget  = widget   # used for after() scheduling and geometry
@@ -312,14 +312,14 @@ class Tooltip:
 
         tk.Label(inner, text=self._title,
                  bg=C["bg4"], fg=C["amber"],
-                 font=("Consolas", 9, "bold"),
+                 font=("Hack Nerd Font Mono", 8, "bold"),
                  anchor="w", padx=12, pady=6).pack(fill="x")
 
         tk.Frame(inner, bg=C["amber_dim"], height=1).pack(fill="x", padx=12)
 
         tk.Label(inner, text=self._body,
                  bg=C["bg4"], fg=C["grey_lt"],
-                 font=("Consolas", 8),
+                 font=("Hack Nerd Font Mono", 7),
                  justify="left", anchor="w",
                  wraplength=self.MAX_WIDTH,
                  padx=12, pady=8).pack(fill="x")
@@ -421,7 +421,7 @@ class ForensicTapeStudio:
                     background=C["bg"], borderwidth=0, tabmargins=[0, 0, 0, 0])
         s.configure("TNotebook.Tab",
                     background=C["bg2"], foreground=C["grey_lt"],
-                    padding=[14, 6], font=("Consolas", 9, "bold"))
+                    padding=[14, 6], font=("Hack Nerd Font Mono", 8, "bold"))
         s.map("TNotebook.Tab",
               background=[("selected", C["tab_sel"])],
               foreground=[("selected", C["amber"])])
@@ -446,7 +446,7 @@ class ForensicTapeStudio:
                                 highlightbackground=C["border"], highlightthickness=1)
         status_block.pack(side="left", padx=(0, 12), pady=2)
 
-        def _sl(text, fg=C["grey"], font=("Consolas", 8), **kw):
+        def _sl(text, fg=C["grey"], font=("Hack Nerd Font Mono", 7), **kw):
             """Helper: add a status line to the panel."""
             lbl = tk.Label(status_block, text=text, bg="#000", fg=fg,
                            font=font, justify="left", anchor="w",
@@ -460,7 +460,7 @@ class ForensicTapeStudio:
         # Section header
         tk.Frame(status_block, bg=C["border"], height=1).pack(fill="x")
         tk.Label(status_block, text=" MACHINE STATUS ",
-                 bg=C["bg4"], fg=C["amber"], font=("Consolas", 7, "bold"),
+                 bg=C["bg4"], fg=C["amber"], font=("Hack Nerd Font Mono", 6, "bold"),
                  anchor="w", padx=10, pady=2).pack(fill="x")
         tk.Frame(status_block, bg=C["border"], height=1).pack(fill="x")
         tk.Frame(status_block, bg="#000", height=3).pack()
@@ -474,7 +474,7 @@ class ForensicTapeStudio:
 
         # ── Power supply ─────────────────────────────────────────────────────
         self.lbl_volt_bar   = _sl("VOLT  [                    ]", fg=C["grey"],
-                                  font=("Consolas", 7))
+                                  font=("Hack Nerd Font Mono", 6))
         self.lbl_volt_val   = _sl("PWR SUPPLY: STABLE  0.00V",   fg=C["grey"])
         _sep()
 
@@ -493,7 +493,7 @@ class ForensicTapeStudio:
 
         # ── Active effects ───────────────────────────────────────────────────
         self.lbl_fx_chain   = _sl("FX       : ···",                fg=C["grey"],
-                                  font=("Consolas", 7))
+                                  font=("Hack Nerd Font Mono", 6))
 
         tk.Frame(status_block, bg="#000", height=3).pack()
         tk.Frame(status_block, bg=C["border"], height=1).pack(fill="x")
@@ -502,9 +502,9 @@ class ForensicTapeStudio:
         title_frame = tk.Frame(header, bg=C["bg"])
         title_frame.pack(side="left", expand=True)
         tk.Label(title_frame, text="NAGRA-V",
-                 bg=C["bg"], fg=C["amber"], font=("Consolas", 22, "bold")).pack()
+                 bg=C["bg"], fg=C["amber"], font=("Hack Nerd Font Mono", 19, "bold")).pack()
         tk.Label(title_frame, text="ANALOG FORENSICS  ·  MODULAR DSP",
-                 bg=C["bg"], fg=C["grey"], font=("Consolas", 9)).pack()
+                 bg=C["bg"], fg=C["grey"], font=("Hack Nerd Font Mono", 8)).pack()
 
         # Right: IPS counter + reel
         meter_block = tk.Frame(header, bg="#000", bd=0,
@@ -513,12 +513,12 @@ class ForensicTapeStudio:
 
         self.lbl_ips = tk.Label(meter_block, text="▶ 00.000",
                                 bg="#000", fg=C["amber"],
-                                font=("Consolas", 30, "bold"), width=11, padx=10, pady=4)
+                                font=("Hack Nerd Font Mono", 26, "bold"), width=11, padx=10, pady=4)
         self.lbl_ips.pack()
 
         self.lbl_reel = tk.Label(meter_block,
                                  text="SUPPLY: ●●●●●●●●  TAKEUP: ○○○○○○○○",
-                                 bg="#000", fg=C["grey"], font=("Consolas", 8), pady=4)
+                                 bg="#000", fg=C["grey"], font=("Hack Nerd Font Mono", 7), pady=4)
         self.lbl_reel.pack()
 
         # Thin separator
@@ -532,7 +532,7 @@ class ForensicTapeStudio:
                   bg=C["green_dim"], fg=C["green"]).pack(side="left", padx=(0, 8))
 
         tk.Label(top_bar, text="PRESET:", bg=C["bg2"],
-                 fg=C["grey_lt"], font=("Consolas", 9)).pack(side="left")
+                 fg=C["grey_lt"], font=("Hack Nerd Font Mono", 8)).pack(side="left")
         self.preset_var = tk.StringVar()
         presets = [
             # ── Studio / Pro ──────────────────────────────────────────────────
@@ -594,7 +594,7 @@ class ForensicTapeStudio:
                 lambda e: self._on_preset_selected(self.preset_var.get()))
 
         tk.Label(top_bar, text="OXIDE:", bg=C["bg2"],
-                 fg=C["grey_lt"], font=("Consolas", 9), padx=8).pack(side="left")
+                 fg=C["grey_lt"], font=("Hack Nerd Font Mono", 8), padx=8).pack(side="left")
         self.oxide_var = tk.StringVar(value="Fe2O3")
         oxide_cb = ttk.Combobox(top_bar, textvariable=self.oxide_var,
                                 values=["Fe2O3", "CrO2", "Metal", "FeCo"],
@@ -605,13 +605,13 @@ class ForensicTapeStudio:
         # ── Preset import / export / save ────────────────────────────────────
         self._btn(top_bar, "IMPORT", self.import_preset,
                   bg=C["bg3"], fg=C["cyan"],
-                  font=("Consolas", 9)).pack(side="left", padx=(12, 2))
+                  font=("Hack Nerd Font Mono", 8)).pack(side="left", padx=(12, 2))
         self._btn(top_bar, "EXPORT", self.export_preset,
                   bg=C["bg3"], fg=C["amber"],
-                  font=("Consolas", 9)).pack(side="left", padx=2)
+                  font=("Hack Nerd Font Mono", 8)).pack(side="left", padx=2)
         self._btn(top_bar, "SAVE AS", self.save_preset_as,
                   bg=C["bg3"], fg=C["purple"],
-                  font=("Consolas", 9)).pack(side="left", padx=2)
+                  font=("Hack Nerd Font Mono", 8)).pack(side="left", padx=2)
 
         tk.Frame(self.root, bg=C["border"], height=1).pack(fill="x", padx=12)
 
@@ -631,7 +631,7 @@ class ForensicTapeStudio:
         self.ctrl("wow_dep",        t_mech, "WOW INTENSITY",                0.0,  30.0,   0.2, ac)
         self.ctrl("flutter_dep",    t_mech, "FLUTTER INTENSITY",            0.0,  10.0,  0.05, ac)
         self.ctrl("scrape_flutter", t_mech, "SCRAPE FLUTTER (3kHz)",        0.0,   1.0,   0.1, ac)
-        self.ctrl("tension_load",   t_mech, "REEL TENSION DYNAMICS",        0.0,   0.5,  0.05, ac)
+        self.ctrl("tension_load",   t_mech, "REEL TENSION DYNAMICS",        0.0,  0.12,  0.01, ac)
         self.ctrl("dropout_rate",   t_mech, "OXIDE DROPOUT RATE",           0.0,   1.0,   0.0, ac)
 
         # Magnetic Flux
@@ -693,10 +693,10 @@ class ForensicTapeStudio:
         self.btn_ff.pack(side="left", padx=3)
 
         # Render button — right side
-        self.btn_export = self._btn(btn_row, "⬛  FORENSIC RENDER",
+        self.btn_export = self._btn(btn_row, "■  FORENSIC RENDER",
                                     self.open_render_dialog,
                                     bg=C["purple_dim"], fg=C["purple"],
-                                    font=("Consolas", 12, "bold"))
+                                    font=("Hack Nerd Font Mono", 10, "bold"))
         self.btn_export.pack(side="right", padx=3)
 
         # ── Render progress bar (hidden until render starts) ──────────────────
@@ -715,7 +715,7 @@ class ForensicTapeStudio:
             style="Render.Horizontal.TProgressbar")
         self._render_prog_lbl = tk.Label(
             prog_row, text="", bg=C["bg"], fg=C["purple"],
-            font=("Consolas", 8), anchor="w")
+            font=("Hack Nerd Font Mono", 7), anchor="w")
         # Packed dynamically when render starts
         prog_row.pack_forget()
 
@@ -726,7 +726,7 @@ class ForensicTapeStudio:
         kw = dict(text=text, command=cmd,
                   bg=bg or C["bg3"], fg=fg or C["white"],
                   activebackground=fg or C["white"], activeforeground=C["bg"],
-                  font=font or ("Consolas", 12, "bold"),
+                  font=font or ("Hack Nerd Font Mono", 10, "bold"),
                   relief="flat", bd=0, cursor="hand2",
                   padx=10, pady=6)
         if width:
@@ -745,7 +745,7 @@ class ForensicTapeStudio:
         inner.pack(fill="x", side="left", expand=True, padx=(0, 0))
 
         lbl = tk.Label(inner, text=label, bg=C["bg3"], fg=C["grey_lt"],
-                      font=("Consolas", 9), width=32, anchor="w",
+                      font=("Hack Nerd Font Mono", 8), width=32, anchor="w",
                       padx=12)
         lbl.pack(side="left")
 
@@ -753,7 +753,7 @@ class ForensicTapeStudio:
 
         # Value readout label
         val_lbl = tk.Label(inner, text=f"{df:.3f}", bg=C["bg3"], fg=ac,
-                           font=("Consolas", 9), width=8, anchor="e", padx=6)
+                           font=("Hack Nerd Font Mono", 8), width=8, anchor="e", padx=6)
         val_lbl.pack(side="right")
 
         def on_change(*_):
@@ -853,10 +853,10 @@ class ForensicTapeStudio:
                              self.render_preroll.get())
 
         self._btn(btn_row, "CANCEL", win.destroy,
-                  bg=C["bg3"], fg=C["grey_lt"], font=("Consolas", 11)).pack(side="left", padx=16)
-        self._btn(btn_row, "⬛  RENDER", do_render,
+                  bg=C["bg3"], fg=C["grey_lt"], font=("Hack Nerd Font Mono", 9)).pack(side="left", padx=16)
+        self._btn(btn_row, "■  RENDER", do_render,
                   bg=C["purple_dim"], fg=C["purple"],
-                  font=("Consolas", 12, "bold")).pack(side="right", padx=16)
+                  font=("Hack Nerd Font Mono", 10, "bold")).pack(side="right", padx=16)
 
         # ── Scrollable content area ────────────────────────────────────────────
         canvas = tk.Canvas(win, bg=C["bg"], highlightthickness=0)
@@ -887,7 +887,7 @@ class ForensicTapeStudio:
             h = tk.Frame(sf, bg=C["bg3"])
             h.pack(fill="x")
             tk.Label(h, text=f"  {title}", bg=C["bg3"], fg=C["amber"],
-                     font=("Consolas", 9, "bold"), pady=5, anchor="w").pack(fill="x")
+                     font=("Hack Nerd Font Mono", 8, "bold"), pady=5, anchor="w").pack(fill="x")
             tk.Frame(sf, bg=C["border"], height=1).pack(fill="x")
 
         # ── Helper: radio group that wraps onto multiple lines ─────────────────
@@ -899,7 +899,7 @@ class ForensicTapeStudio:
                 r = i // cols
                 c = i % cols
                 tk.Radiobutton(outer, text=lbl, variable=var, value=val,
-                               bg=C["bg4"], fg=C["white"], font=("Consolas", 10),
+                               bg=C["bg4"], fg=C["white"], font=("Hack Nerd Font Mono", 8),
                                selectcolor=C["amber"], activebackground=C["bg4"],
                                highlightthickness=0,
                                indicatoron=0,
@@ -914,7 +914,7 @@ class ForensicTapeStudio:
         # ── Helper: labelled row ───────────────────────────────────────────────
         def label_row(text):
             tk.Label(sf, text=text, bg=C["bg"], fg=C["grey"],
-                     font=("Consolas", 8), anchor="w", padx=16, pady=3).pack(fill="x")
+                     font=("Hack Nerd Font Mono", 7), anchor="w", padx=16, pady=3).pack(fill="x")
 
         # ── Helper: checkbox row ───────────────────────────────────────────────
         def check_row(var, label):
@@ -923,17 +923,17 @@ class ForensicTapeStudio:
             tk.Checkbutton(f, text=label, variable=var,
                            bg=C["bg4"], fg=C["white"],
                            selectcolor=C["bg2"], activebackground=C["bg4"],
-                           font=("Consolas", 10), highlightthickness=0,
+                           font=("Hack Nerd Font Mono", 8), highlightthickness=0,
                            padx=10, pady=6).pack(side="left")
 
         # ── Header ─────────────────────────────────────────────────────────────
         hdr = tk.Frame(sf, bg=C["bg2"], pady=12)
         hdr.pack(fill="x")
-        tk.Label(hdr, text="⬛  FORENSIC RENDER", bg=C["bg2"], fg=C["purple"],
-                 font=("Consolas", 16, "bold"), padx=20, anchor="w").pack(fill="x")
+        tk.Label(hdr, text="■  FORENSIC RENDER", bg=C["bg2"], fg=C["purple"],
+                 font=("Hack Nerd Font Mono", 14, "bold"), padx=20, anchor="w").pack(fill="x")
         total_s = self.engine.total_samples / 44100
         tk.Label(hdr, text=f"  Source: {int(total_s//60):02d}:{total_s%60:05.2f}  ·  44100 Hz  ·  Stereo",
-                 bg=C["bg2"], fg=C["grey"], font=("Consolas", 9), padx=20, anchor="w").pack(fill="x")
+                 bg=C["bg2"], fg=C["grey"], font=("Hack Nerd Font Mono", 8), padx=20, anchor="w").pack(fill="x")
 
         # ── AUDIO QUALITY ──────────────────────────────────────────────────────
         section("AUDIO QUALITY")
@@ -972,8 +972,8 @@ class ForensicTapeStudio:
             "Archival (8×OS)": "Block:  512 · 8× oversample — maximum nonlinear accuracy, slowest",
         }
         desc_lbl = tk.Label(sf, text=sq_desc.get(self.render_sim_quality.get(), ""),
-                            bg=C["bg"], fg=C["grey_lt"], font=("Consolas", 8),
-                            anchor="w", padx=20, pady=2, wraplength=640, justify="left")
+                            bg=C["bg"], fg=C["grey_lt"], font=("Hack Nerd Font Mono", 7),
+                            anchor="w", padx=20, pady=2, wraplength=900, justify="left")
         desc_lbl.pack(fill="x")
         def _upd_desc(*_):
             desc_lbl.config(text=sq_desc.get(self.render_sim_quality.get(), ""))
@@ -1010,7 +1010,7 @@ class ForensicTapeStudio:
             (8, "8 threads"),
         ], cols=4)
         tk.Label(sf, text="  ⚠  Parallel threads may introduce subtle level discontinuities at chunk boundaries.",
-                 bg=C["bg"], fg=C["orange"], font=("Consolas", 8),
+                 bg=C["bg"], fg=C["orange"], font=("Hack Nerd Font Mono", 7),
                  anchor="w", padx=20, pady=2).pack(fill="x")
 
         # ── OUTPUT FILE ───────────────────────────────────────────────────────
@@ -1018,10 +1018,10 @@ class ForensicTapeStudio:
         path_row = tk.Frame(sf, bg=C["bg4"], pady=8)
         path_row.pack(fill="x", padx=16, pady=4)
         tk.Label(path_row, text="Output Path", bg=C["bg4"], fg=C["grey_lt"],
-                 font=("Consolas", 10), padx=10, anchor="w").pack(side="left")
+                 font=("Hack Nerd Font Mono", 8), padx=10, anchor="w").pack(side="left")
         tk.Entry(path_row, textvariable=self.render_output_path,
                  bg=C["bg2"], fg=C["white"], insertbackground=C["white"],
-                 font=("Consolas", 9), relief="flat", bd=0
+                 font=("Hack Nerd Font Mono", 8), relief="flat", bd=0
                  ).pack(side="left", fill="x", expand=True, padx=(0, 6))
         def browse():
             p = filedialog.asksaveasfilename(defaultextension=".wav",
@@ -1029,7 +1029,7 @@ class ForensicTapeStudio:
             if p:
                 self.render_output_path.set(p)
         self._btn(path_row, "Browse", browse,
-                  bg=C["bg2"], fg=C["grey_lt"], font=("Consolas", 9)).pack(side="left")
+                  bg=C["bg2"], fg=C["grey_lt"], font=("Hack Nerd Font Mono", 8)).pack(side="left")
 
         tk.Frame(sf, bg=C["bg"], height=12).pack()   # bottom padding
 
@@ -1080,7 +1080,7 @@ class ForensicTapeStudio:
                 self.root.after(0, lambda m=err_msg: [
                     messagebox.showerror("Render Failed",
                                          f"Render encountered an error:\n\n{m}"),
-                    self.btn_export.config(text="⬛  FORENSIC RENDER", state="normal"),
+                    self.btn_export.config(text="■  FORENSIC RENDER", state="normal"),
                     self._render_prog_hide(),
                 ])
             else:
@@ -1434,7 +1434,7 @@ class ForensicTapeStudio:
                 messagebox.showinfo("Render Complete",
                                     f"✓  Saved to:\n{path}\n\n"
                                     f"{sample_rate//1000}kHz  ·  {bit_depth}-bit  ·  {sim_quality}"),
-                self.btn_export.config(text="⬛  FORENSIC RENDER", state="normal"),
+                self.btn_export.config(text="■  FORENSIC RENDER", state="normal"),
             ])
 
         threading.Thread(target=_run, daemon=True, name="RenderThread").start()
@@ -1557,10 +1557,10 @@ class ForensicTapeStudio:
         win.transient(self.root)
 
         tk.Label(win, text="Preset name:", bg=C["bg"], fg=C["white"],
-                 font=("Consolas", 10)).pack(padx=20, pady=(18, 4), anchor="w")
+                 font=("Hack Nerd Font Mono", 8)).pack(padx=20, pady=(18, 4), anchor="w")
         name_var = tk.StringVar(value=self.preset_var.get() or "My Preset")
         entry = tk.Entry(win, textvariable=name_var, bg=C["bg3"], fg=C["white"],
-                         insertbackground=C["white"], font=("Consolas", 11),
+                         insertbackground=C["white"], font=("Hack Nerd Font Mono", 9),
                          relief="flat", bd=0)
         entry.pack(fill="x", padx=20, pady=4)
         entry.select_range(0, "end")
@@ -1590,10 +1590,10 @@ class ForensicTapeStudio:
 
         self._btn(btn_row, "SAVE", _save,
                   bg=C["purple_dim"], fg=C["purple"],
-                  font=("Consolas", 10, "bold")).pack(side="right", padx=4)
+                  font=("Hack Nerd Font Mono", 8, "bold")).pack(side="right", padx=4)
         self._btn(btn_row, "CANCEL", win.destroy,
                   bg=C["bg3"], fg=C["grey_lt"],
-                  font=("Consolas", 10)).pack(side="right", padx=4)
+                  font=("Hack Nerd Font Mono", 8)).pack(side="right", padx=4)
 
         win.bind("<Return>", lambda e: _save())
         win.bind("<Escape>", lambda e: win.destroy())
@@ -1628,424 +1628,430 @@ class ForensicTapeStudio:
 
         p = {
             # ── Studio / Pro ──────────────────────────────────────────────────
+            # Professional machines at 15/30 IPS. Extremely well-maintained.
+            # Pitch stability: < 0.04% weighted. Drive: gentle warmth only.
+            # Head bump: mild (+1–2 dB). Print-through: -43 to -48 dBFS rel signal.
             "Ampex 456 (30ips)": {
                 "ips_base": 30.0, "motor_health": 0.02, "wow_dep": 0.008,
-                "flutter_dep": 0.005, "scrape_flutter": 0.04,
+                "flutter_dep": 0.004, "scrape_flutter": 0.025,
                 "drive": 1.05, "bias": 1.0,
                 "hiss": 0.000020, "hiss_color": 0.1, "cutoff_base": 22000,
-                "head_bump": 0.35, "print_through": 0.025, "replay_diff": 0.32,
-                "mains_hum": 0.000008, "barkhausen": 0.005, "asperities": 0.008,
+                "head_bump": 0.28, "print_through": 0.005, "replay_diff": 0.32,
+                "mains_hum": 0.000008, "barkhausen": 0.004, "asperities": 0.006,
             },
             "Ampex 456 (15ips)": {
-                "ips_base": 15.0, "motor_health": 0.05, "wow_dep": 0.02,
-                "flutter_dep": 0.008, "scrape_flutter": 0.05,
-                "drive": 1.1, "bias": 1.0,
-                "hiss": 0.000039, "hiss_color": 0.15, "cutoff_base": 20000,
-                "head_bump": 0.55, "print_through": 0.018, "replay_diff": 0.3,
-                "mains_hum": 0.000012, "barkhausen": 0.008, "asperities": 0.012,
+                "ips_base": 15.0, "motor_health": 0.04, "wow_dep": 0.018,
+                "flutter_dep": 0.006, "scrape_flutter": 0.032,
+                "drive": 1.08, "bias": 1.0,
+                "hiss": 0.000039, "hiss_color": 0.12, "cutoff_base": 20000,
+                "head_bump": 0.42, "print_through": 0.006, "replay_diff": 0.30,
+                "mains_hum": 0.000012, "barkhausen": 0.006, "asperities": 0.009,
             },
             "Studer A820 (30ips)": {
                 "ips_base": 30.0, "motor_health": 0.01, "wow_dep": 0.005,
-                "flutter_dep": 0.003, "scrape_flutter": 0.03,
+                "flutter_dep": 0.003, "scrape_flutter": 0.018,
                 "drive": 1.02, "bias": 1.0,
-                "hiss": 0.000013, "hiss_color": 0.08, "cutoff_base": 22000,
-                "head_bump": 0.25, "print_through": 0.015, "replay_diff": 0.35,
-                "mains_hum": 0.000005, "barkhausen": 0.003, "asperities": 0.005,
+                "hiss": 0.000013, "hiss_color": 0.07, "cutoff_base": 22000,
+                "head_bump": 0.20, "print_through": 0.004, "replay_diff": 0.35,
+                "mains_hum": 0.000005, "barkhausen": 0.002, "asperities": 0.004,
             },
             "Studer A820 (15ips)": {
-                "ips_base": 15.0, "motor_health": 0.03, "wow_dep": 0.012,
-                "flutter_dep": 0.005, "scrape_flutter": 0.04,
-                "drive": 1.06, "bias": 1.0,
-                "hiss": 0.000025, "hiss_color": 0.1, "cutoff_base": 21000,
-                "head_bump": 0.45, "print_through": 0.012, "replay_diff": 0.32,
-                "mains_hum": 0.000008, "barkhausen": 0.005, "asperities": 0.008,
+                "ips_base": 15.0, "motor_health": 0.025, "wow_dep": 0.010,
+                "flutter_dep": 0.004, "scrape_flutter": 0.025,
+                "drive": 1.04, "bias": 1.0,
+                "hiss": 0.000025, "hiss_color": 0.09, "cutoff_base": 21000,
+                "head_bump": 0.35, "print_through": 0.005, "replay_diff": 0.32,
+                "mains_hum": 0.000008, "barkhausen": 0.004, "asperities": 0.006,
             },
             "Otari MTR-90 (30ips)": {
-                "ips_base": 30.0, "motor_health": 0.015, "wow_dep": 0.006,
-                "flutter_dep": 0.004, "scrape_flutter": 0.035,
-                "drive": 1.04, "bias": 1.0,
-                "hiss": 0.000016, "hiss_color": 0.09, "cutoff_base": 22000,
-                "head_bump": 0.3, "print_through": 0.018, "replay_diff": 0.33,
-                "mains_hum": 0.000006, "barkhausen": 0.004, "asperities": 0.006,
+                "ips_base": 30.0, "motor_health": 0.012, "wow_dep": 0.006,
+                "flutter_dep": 0.003, "scrape_flutter": 0.022,
+                "drive": 1.03, "bias": 1.0,
+                "hiss": 0.000016, "hiss_color": 0.08, "cutoff_base": 22000,
+                "head_bump": 0.24, "print_through": 0.005, "replay_diff": 0.33,
+                "mains_hum": 0.000006, "barkhausen": 0.003, "asperities": 0.005,
             },
             "Otari MTR-90 (15ips)": {
-                "ips_base": 15.0, "motor_health": 0.04, "wow_dep": 0.015,
-                "flutter_dep": 0.006, "scrape_flutter": 0.045,
-                "drive": 1.08, "bias": 1.0,
-                "hiss": 0.000031, "hiss_color": 0.12, "cutoff_base": 20500,
-                "head_bump": 0.5, "print_through": 0.014, "replay_diff": 0.31,
-                "mains_hum": 0.000010, "barkhausen": 0.006, "asperities": 0.009,
+                "ips_base": 15.0, "motor_health": 0.035, "wow_dep": 0.013,
+                "flutter_dep": 0.005, "scrape_flutter": 0.028,
+                "drive": 1.06, "bias": 1.0,
+                "hiss": 0.000031, "hiss_color": 0.10, "cutoff_base": 20500,
+                "head_bump": 0.38, "print_through": 0.005, "replay_diff": 0.31,
+                "mains_hum": 0.000010, "barkhausen": 0.005, "asperities": 0.007,
             },
             "MCI JH-24 (30ips)": {
-                # MCI slightly warmer than Studer, transformer coloration
-                "ips_base": 30.0, "motor_health": 0.025, "wow_dep": 0.01,
-                "flutter_dep": 0.006, "scrape_flutter": 0.05,
-                "drive": 1.08, "bias": 1.0,
-                "hiss": 0.000020, "hiss_color": 0.2, "cutoff_base": 21000,
-                "head_bump": 0.45, "print_through": 0.022, "replay_diff": 0.28,
-                "mains_hum": 0.000015, "barkhausen": 0.007, "asperities": 0.01,
+                # MCI: slightly warmer transformer coloration than Studer
+                "ips_base": 30.0, "motor_health": 0.020, "wow_dep": 0.009,
+                "flutter_dep": 0.005, "scrape_flutter": 0.030,
+                "drive": 1.07, "bias": 1.0,
+                "hiss": 0.000020, "hiss_color": 0.18, "cutoff_base": 21000,
+                "head_bump": 0.35, "print_through": 0.006, "replay_diff": 0.28,
+                "mains_hum": 0.000015, "barkhausen": 0.005, "asperities": 0.008,
             },
             "Scotch 226 (7.5ips)": {
-                "ips_base": 7.5, "motor_health": 0.2, "wow_dep": 0.08,
-                "flutter_dep": 0.02, "scrape_flutter": 0.08,
-                "drive": 1.3, "bias": 0.95,
-                "hiss": 0.000079, "hiss_color": 0.25, "cutoff_base": 16000,
-                "head_bump": 0.85, "print_through": 0.03, "replay_diff": 0.28,
-                "mains_hum": 0.000020, "barkhausen": 0.015, "asperities": 0.02,
+                "ips_base": 7.5, "motor_health": 0.15, "wow_dep": 0.06,
+                "flutter_dep": 0.014, "scrape_flutter": 0.050,
+                "drive": 1.22, "bias": 0.95,
+                "hiss": 0.000079, "hiss_color": 0.22, "cutoff_base": 16000,
+                "head_bump": 0.58, "print_through": 0.007, "replay_diff": 0.28,
+                "mains_hum": 0.000020, "barkhausen": 0.010, "asperities": 0.014,
             },
             "Revox B77 (7.5ips)": {
-                "ips_base": 7.5, "motor_health": 0.15, "wow_dep": 0.06,
-                "flutter_dep": 0.015, "scrape_flutter": 0.07,
-                "drive": 1.25, "bias": 0.97,
-                "hiss": 0.000063, "hiss_color": 0.2, "cutoff_base": 17000,
-                "head_bump": 0.75, "print_through": 0.025, "replay_diff": 0.29,
-                "mains_hum": 0.000018, "barkhausen": 0.012, "asperities": 0.016,
+                "ips_base": 7.5, "motor_health": 0.12, "wow_dep": 0.05,
+                "flutter_dep": 0.011, "scrape_flutter": 0.045,
+                "drive": 1.18, "bias": 0.97,
+                "hiss": 0.000063, "hiss_color": 0.18, "cutoff_base": 17000,
+                "head_bump": 0.52, "print_through": 0.006, "replay_diff": 0.29,
+                "mains_hum": 0.000018, "barkhausen": 0.009, "asperities": 0.012,
             },
             "Revox B77 (3.75ips)": {
-                "ips_base": 3.75, "motor_health": 0.4, "wow_dep": 0.25,
-                "flutter_dep": 0.04, "scrape_flutter": 0.12,
-                "drive": 1.6, "bias": 0.9,
-                "hiss": 0.000158, "hiss_color": 0.35, "cutoff_base": 12000,
-                "head_bump": 1.2, "print_through": 0.04, "replay_diff": 0.24,
-                "mains_hum": 0.000025, "barkhausen": 0.02, "asperities": 0.028,
+                "ips_base": 3.75, "motor_health": 0.30, "wow_dep": 0.18,
+                "flutter_dep": 0.028, "scrape_flutter": 0.070,
+                "drive": 1.38, "bias": 0.90,
+                "hiss": 0.000158, "hiss_color": 0.30, "cutoff_base": 12000,
+                "head_bump": 0.80, "print_through": 0.008, "replay_diff": 0.24,
+                "mains_hum": 0.000025, "barkhausen": 0.014, "asperities": 0.018,
             },
             # ── Consumer reel ─────────────────────────────────────────────────
+            # 7.5 IPS consumer decks: noticeably noisier than pro, mild wow.
+            # drive kept low — these decks ran near nominal levels, not pushed hard.
             "BASF LH Super (7.5ips)": {
-                "ips_base": 7.5, "motor_health": 0.4, "wow_dep": 0.15,
-                "flutter_dep": 0.03, "scrape_flutter": 0.09,
-                "drive": 1.4, "bias": 0.9,
-                "hiss": 0.000100, "hiss_color": 0.3, "cutoff_base": 14000,
-                "head_bump": 1.0, "print_through": 0.035, "replay_diff": 0.25,
-                "mains_hum": 0.000025, "barkhausen": 0.02, "asperities": 0.025,
-                "crosstalk": 0.04,
+                "ips_base": 7.5, "motor_health": 0.28, "wow_dep": 0.10,
+                "flutter_dep": 0.020, "scrape_flutter": 0.055,
+                "drive": 1.28, "bias": 0.90,
+                "hiss": 0.000100, "hiss_color": 0.26, "cutoff_base": 14000,
+                "head_bump": 0.70, "print_through": 0.008, "replay_diff": 0.25,
+                "mains_hum": 0.000025, "barkhausen": 0.014, "asperities": 0.018,
+                "crosstalk": 0.03, "tension_load": 0.008,
             },
             "Maxell UD (7.5ips)": {
-                "ips_base": 7.5, "motor_health": 0.35, "wow_dep": 0.12,
-                "flutter_dep": 0.025, "scrape_flutter": 0.08,
-                "drive": 1.35, "bias": 0.92,
-                "hiss": 0.000089, "hiss_color": 0.28, "cutoff_base": 15000,
-                "head_bump": 0.9, "print_through": 0.028, "replay_diff": 0.26,
-                "mains_hum": 0.000020, "barkhausen": 0.018, "asperities": 0.022,
-                "crosstalk": 0.03,
+                "ips_base": 7.5, "motor_health": 0.24, "wow_dep": 0.09,
+                "flutter_dep": 0.017, "scrape_flutter": 0.048,
+                "drive": 1.24, "bias": 0.92,
+                "hiss": 0.000089, "hiss_color": 0.24, "cutoff_base": 15000,
+                "head_bump": 0.62, "print_through": 0.007, "replay_diff": 0.26,
+                "mains_hum": 0.000020, "barkhausen": 0.012, "asperities": 0.016,
+                "crosstalk": 0.025, "tension_load": 0.006,
             },
             "Tascam 38 (7.5ips)": {
-                # 8-track 1/2" consumer studio — noticeably noisier than pro 2"
-                "ips_base": 7.5, "motor_health": 0.5, "wow_dep": 0.2,
-                "flutter_dep": 0.04, "scrape_flutter": 0.1,
-                "drive": 1.5, "bias": 0.92,
-                "hiss": 0.000125, "hiss_color": 0.32, "cutoff_base": 14500,
-                "head_bump": 1.1, "print_through": 0.03, "replay_diff": 0.26,
-                "crosstalk": 0.07, "mains_hum": 0.000030,
-                "barkhausen": 0.022, "asperities": 0.028,
+                # 8-track 1/2" consumer studio — noisier than pro 2"
+                "ips_base": 7.5, "motor_health": 0.35, "wow_dep": 0.14,
+                "flutter_dep": 0.026, "scrape_flutter": 0.060,
+                "drive": 1.32, "bias": 0.92,
+                "hiss": 0.000125, "hiss_color": 0.28, "cutoff_base": 14500,
+                "head_bump": 0.78, "print_through": 0.007, "replay_diff": 0.26,
+                "crosstalk": 0.06, "mains_hum": 0.000030,
+                "barkhausen": 0.016, "asperities": 0.020, "tension_load": 0.010,
             },
             # ── Multitrack ────────────────────────────────────────────────────
             "4-Track Portastudio (1.875ips)": {
-                # Tascam Portastudio on Type I at slow speed — the classic lo-fi sound
-                "ips_base": 1.875, "motor_health": 1.2, "wow_dep": 2.0,
-                "flutter_dep": 0.18, "scrape_flutter": 0.25,
-                "drive": 2.8, "bias": 0.82,
-                "hiss": 0.000316, "hiss_color": 0.6, "cutoff_base": 10000,
-                "head_bump": 2.0, "replay_diff": 0.18, "crosstalk": 0.22,
-                "mains_hum": 0.000040, "barkhausen": 0.05, "asperities": 0.06,
-                "tension_load": 0.1,
+                # Tascam Portastudio on Type I — lo-fi but not broken
+                "ips_base": 1.875, "motor_health": 0.70, "wow_dep": 0.90,
+                "flutter_dep": 0.090, "scrape_flutter": 0.090,
+                "drive": 1.65, "bias": 0.82,
+                "hiss": 0.000316, "hiss_color": 0.55, "cutoff_base": 10000,
+                "head_bump": 0.95, "replay_diff": 0.18, "crosstalk": 0.18,
+                "mains_hum": 0.000040, "barkhausen": 0.030, "asperities": 0.040,
+                "tension_load": 0.020,
             },
             "8-Track Cartridge": {
                 # 8-track at 3.75 IPS — continuous loop, head bump from cart pressure
-                "ips_base": 3.75, "motor_health": 1.5, "wow_dep": 1.8,
-                "flutter_dep": 0.15, "scrape_flutter": 0.28,
-                "drive": 2.5, "bias": 0.85,
-                "hiss": 0.000251, "hiss_color": 0.55, "cutoff_base": 9000,
-                "head_bump": 2.5, "replay_diff": 0.17, "crosstalk": 0.3,
-                "mains_hum": 0.000035, "tension_load": 0.15,
-                "barkhausen": 0.04, "asperities": 0.055,
+                "ips_base": 3.75, "motor_health": 0.80, "wow_dep": 0.75,
+                "flutter_dep": 0.075, "scrape_flutter": 0.110,
+                "drive": 1.55, "bias": 0.85,
+                "hiss": 0.000251, "hiss_color": 0.50, "cutoff_base": 9000,
+                "head_bump": 1.10, "replay_diff": 0.17, "crosstalk": 0.22,
+                "mains_hum": 0.000035, "tension_load": 0.028,
+                "barkhausen": 0.025, "asperities": 0.035,
             },
             # ── Cassette ──────────────────────────────────────────────────────
+            # 1.875 IPS cassette. IEC wow+flutter spec: 0.2–0.35% weighted.
+            # Head bump: +2–4 dB realistic. drive: 1.3–1.6 for normal operation.
             "Type I (Fe2O3) Normal": {
-                "ips_base": 1.875, "motor_health": 1.0, "wow_dep": 1.5,
-                "flutter_dep": 0.12, "scrape_flutter": 0.18,
-                "drive": 2.2, "bias": 0.85,
-                "hiss": 0.000199, "hiss_color": 0.5, "cutoff_base": 12500,
-                "head_bump": 1.8, "replay_diff": 0.2,
-                "mains_hum": 0.000030, "barkhausen": 0.04, "asperities": 0.05,
-                "crosstalk": 0.18, "tension_load": 0.08,
+                "ips_base": 1.875, "motor_health": 0.50, "wow_dep": 0.70,
+                "flutter_dep": 0.070, "scrape_flutter": 0.065,
+                "drive": 1.45, "bias": 0.85,
+                "hiss": 0.000199, "hiss_color": 0.45, "cutoff_base": 12500,
+                "head_bump": 0.80, "replay_diff": 0.20,
+                "mains_hum": 0.000030, "barkhausen": 0.025, "asperities": 0.032,
+                "crosstalk": 0.14, "tension_load": 0.015,
             },
             "Type II Chrome (CrO2)": {
-                "ips_base": 1.875, "motor_health": 0.7, "wow_dep": 1.0,
-                "flutter_dep": 0.09, "scrape_flutter": 0.14,
-                "drive": 1.8, "bias": 1.35,
-                "hiss": 0.000125, "hiss_color": 0.35, "cutoff_base": 15000,
-                "head_bump": 1.3, "replay_diff": 0.25,
-                "mains_hum": 0.000022, "barkhausen": 0.025, "asperities": 0.03,
-                "crosstalk": 0.1, "tension_load": 0.05,
+                "ips_base": 1.875, "motor_health": 0.40, "wow_dep": 0.55,
+                "flutter_dep": 0.058, "scrape_flutter": 0.055,
+                "drive": 1.35, "bias": 1.35,
+                "hiss": 0.000125, "hiss_color": 0.30, "cutoff_base": 15000,
+                "head_bump": 0.60, "replay_diff": 0.25,
+                "mains_hum": 0.000022, "barkhausen": 0.016, "asperities": 0.022,
+                "crosstalk": 0.08, "tension_load": 0.010,
             },
             "Type IV Metal": {
-                "ips_base": 1.875, "motor_health": 0.5, "wow_dep": 0.7,
-                "flutter_dep": 0.06, "scrape_flutter": 0.10,
-                "drive": 1.5, "bias": 1.7,
-                "hiss": 0.000079, "hiss_color": 0.2, "cutoff_base": 18000,
-                "head_bump": 0.9, "replay_diff": 0.3,
-                "mains_hum": 0.000015, "barkhausen": 0.015, "asperities": 0.018,
-                "crosstalk": 0.06, "tension_load": 0.03,
+                "ips_base": 1.875, "motor_health": 0.28, "wow_dep": 0.40,
+                "flutter_dep": 0.045, "scrape_flutter": 0.042,
+                "drive": 1.25, "bias": 1.70,
+                "hiss": 0.000079, "hiss_color": 0.18, "cutoff_base": 18000,
+                "head_bump": 0.45, "replay_diff": 0.30,
+                "mains_hum": 0.000015, "barkhausen": 0.010, "asperities": 0.014,
+                "crosstalk": 0.05, "tension_load": 0.007,
             },
             "Dolby B (Type I)": {
-                "ips_base": 1.875, "motor_health": 0.9, "wow_dep": 1.2,
-                "flutter_dep": 0.10, "scrape_flutter": 0.15,
-                "drive": 2.0, "bias": 0.88,
-                "hiss": 0.000063, "hiss_color": 0.2, "cutoff_base": 14000,
-                "head_bump": 1.6, "replay_diff": 0.22,
-                "mains_hum": 0.000025, "barkhausen": 0.03, "asperities": 0.035,
-                "crosstalk": 0.15,
+                "ips_base": 1.875, "motor_health": 0.45, "wow_dep": 0.60,
+                "flutter_dep": 0.065, "scrape_flutter": 0.060,
+                "drive": 1.40, "bias": 0.88,
+                "hiss": 0.000063, "hiss_color": 0.18, "cutoff_base": 14000,
+                "head_bump": 0.72, "replay_diff": 0.22,
+                "mains_hum": 0.000025, "barkhausen": 0.020, "asperities": 0.026,
+                "crosstalk": 0.12,
             },
             "Dolby C (Type II)": {
-                # Dolby C ≈ 20dB NR — noticeably quieter than Dolby B
-                "ips_base": 1.875, "motor_health": 0.65, "wow_dep": 0.9,
-                "flutter_dep": 0.08, "scrape_flutter": 0.12,
-                "drive": 1.75, "bias": 1.35,
-                "hiss": 0.000031, "hiss_color": 0.15, "cutoff_base": 15500,
-                "head_bump": 1.2, "replay_diff": 0.24,
-                "mains_hum": 0.000018, "barkhausen": 0.02, "asperities": 0.025,
-                "crosstalk": 0.08, "tension_load": 0.04,
+                "ips_base": 1.875, "motor_health": 0.35, "wow_dep": 0.48,
+                "flutter_dep": 0.052, "scrape_flutter": 0.050,
+                "drive": 1.30, "bias": 1.35,
+                "hiss": 0.000031, "hiss_color": 0.14, "cutoff_base": 15500,
+                "head_bump": 0.55, "replay_diff": 0.24,
+                "mains_hum": 0.000018, "barkhausen": 0.014, "asperities": 0.018,
+                "crosstalk": 0.06, "tension_load": 0.008,
             },
             "Lo-Fi Bedroom (Type I)": {
-                # Cheap deck, no alignment, generic off-brand tape
-                "ips_base": 1.875, "motor_health": 2.0, "wow_dep": 3.0,
-                "flutter_dep": 0.25, "scrape_flutter": 0.35,
-                "drive": 3.5, "bias": 0.75,
-                "hiss": 0.000316, "hiss_color": 0.7, "cutoff_base": 9000,
-                "head_bump": 2.5, "replay_diff": 0.15,
-                "mains_hum": 0.000060, "barkhausen": 0.06, "asperities": 0.08,
-                "crosstalk": 0.25, "tension_load": 0.15, "azimuth_drift": 0.15,
+                # Cheap unaligned deck, generic tape — lo-fi but recognisable
+                "ips_base": 1.875, "motor_health": 1.00, "wow_dep": 1.20,
+                "flutter_dep": 0.110, "scrape_flutter": 0.100,
+                "drive": 1.80, "bias": 0.75,
+                "hiss": 0.000316, "hiss_color": 0.62, "cutoff_base": 9000,
+                "head_bump": 1.05, "replay_diff": 0.15,
+                "mains_hum": 0.000060, "barkhausen": 0.038, "asperities": 0.050,
+                "crosstalk": 0.20, "tension_load": 0.022, "azimuth_drift": 0.10,
             },
             # ── Video / Broadcast ─────────────────────────────────────────────
             "VHS Linear Audio": {
-                "ips_base": 1.3125, "motor_health": 1.8, "wow_dep": 2.5,
-                "flutter_dep": 0.2, "scrape_flutter": 0.3,
-                "drive": 2.5, "bias": 0.8,
-                "hiss": 0.000397, "hiss_color": 0.65, "cutoff_base": 8000,
-                "head_bump": 2.2, "replay_diff": 0.15,
-                "mains_hum": 0.000100, "crosstalk": 0.35, "asperities": 0.07,
-                "tension_load": 0.12,
+                # Linear audio track on VHS — very slow tape, limited bandwidth
+                "ips_base": 1.3125, "motor_health": 0.90, "wow_dep": 1.00,
+                "flutter_dep": 0.085, "scrape_flutter": 0.085,
+                "drive": 1.55, "bias": 0.80,
+                "hiss": 0.000397, "hiss_color": 0.60, "cutoff_base": 8000,
+                "head_bump": 1.00, "replay_diff": 0.15,
+                "mains_hum": 0.000100, "crosstalk": 0.28, "asperities": 0.048,
+                "tension_load": 0.022,
             },
             "Betamax Audio": {
-                "ips_base": 1.873, "motor_health": 1.4, "wow_dep": 1.8,
-                "flutter_dep": 0.15, "scrape_flutter": 0.22,
-                "drive": 2.2, "bias": 0.82,
-                "hiss": 0.000316, "hiss_color": 0.55, "cutoff_base": 9500,
-                "head_bump": 2.0, "replay_diff": 0.17,
-                "mains_hum": 0.000080, "crosstalk": 0.28, "asperities": 0.06,
-                "tension_load": 0.10,
+                "ips_base": 1.873, "motor_health": 0.70, "wow_dep": 0.80,
+                "flutter_dep": 0.072, "scrape_flutter": 0.072,
+                "drive": 1.48, "bias": 0.82,
+                "hiss": 0.000316, "hiss_color": 0.50, "cutoff_base": 9500,
+                "head_bump": 0.88, "replay_diff": 0.17,
+                "mains_hum": 0.000080, "crosstalk": 0.22, "asperities": 0.042,
+                "tension_load": 0.018,
             },
             "U-Matic Low Band": {
-                "ips_base": 3.75, "motor_health": 0.9, "wow_dep": 1.0,
-                "flutter_dep": 0.1, "scrape_flutter": 0.18,
-                "drive": 2.0, "bias": 0.85,
-                "hiss": 0.000251, "hiss_color": 0.5, "cutoff_base": 10000,
-                "head_bump": 1.8, "replay_diff": 0.2,
-                "mains_hum": 0.000060, "crosstalk": 0.22, "asperities": 0.05,
-                "tension_load": 0.08, "print_through": 0.01,
+                "ips_base": 3.75, "motor_health": 0.45, "wow_dep": 0.45,
+                "flutter_dep": 0.048, "scrape_flutter": 0.060,
+                "drive": 1.42, "bias": 0.85,
+                "hiss": 0.000251, "hiss_color": 0.45, "cutoff_base": 10000,
+                "head_bump": 0.82, "replay_diff": 0.20,
+                "mains_hum": 0.000060, "crosstalk": 0.18, "asperities": 0.036,
+                "tension_load": 0.015, "print_through": 0.005,
             },
             # ── Damaged / Warped ──────────────────────────────────────────────
+            # These are still clearly degraded — just not catastrophically so.
+            # A listener should recognise the source but hear obvious damage.
             "Sticky Shed Syndrome": {
-                "ips_base": 7.5, "sticky_shed": 0.9, "motor_health": 4.0,
-                "wow_dep": 8.0, "flutter_dep": 0.5, "scrape_flutter": 0.7,
-                "drive": 3.0, "hiss": 0.000600, "hiss_color": 0.7,
-                "cutoff_base": 3500, "head_bump": 2.5,
-                "dropout_rate": 0.5, "oxide_shedding": 0.7, "tension_load": 0.25,
+                # Tape squealing, slowing, shedding oxide — pre-bake condition
+                "ips_base": 7.5, "sticky_shed": 0.55, "motor_health": 1.80,
+                "wow_dep": 2.80, "flutter_dep": 0.200, "scrape_flutter": 0.200,
+                "drive": 1.70, "hiss": 0.000500, "hiss_color": 0.65,
+                "cutoff_base": 5500, "head_bump": 1.10,
+                "dropout_rate": 0.30, "oxide_shedding": 0.40, "tension_load": 0.040,
             },
             "Baked Tape (Post-Oven)": {
-                "ips_base": 7.5, "sticky_shed": 0.25, "motor_health": 1.0,
-                "wow_dep": 1.5, "flutter_dep": 0.08, "scrape_flutter": 0.15,
-                "drive": 2.0, "hiss": 0.000250, "hiss_color": 0.4,
-                "cutoff_base": 10000, "head_bump": 1.2,
-                "dropout_rate": 0.08, "oxide_shedding": 0.15,
-                "tension_load": 0.08, "demagnetization": 0.15,
+                # After baking: improved but still degraded — not fully restored
+                "ips_base": 7.5, "sticky_shed": 0.12, "motor_health": 0.50,
+                "wow_dep": 0.50, "flutter_dep": 0.042, "scrape_flutter": 0.055,
+                "drive": 1.45, "hiss": 0.000200, "hiss_color": 0.35,
+                "cutoff_base": 12000, "head_bump": 0.72,
+                "dropout_rate": 0.030, "oxide_shedding": 0.06,
+                "tension_load": 0.012, "demagnetization": 0.08,
             },
             "Mouldy Attic Find": {
-                "ips_base": 7.5, "motor_health": 2.5, "wow_dep": 4.0,
-                "flutter_dep": 0.3, "scrape_flutter": 0.45,
-                "drive": 3.5, "hiss": 0.000450, "hiss_color": 0.75,
-                "cutoff_base": 5000, "head_bump": 2.5,
-                "print_through": 0.08, "demagnetization": 0.55,
-                "dropout_rate": 0.35, "oxide_shedding": 0.4,
-                "asperities": 0.12, "barkhausen": 0.06,
+                "ips_base": 7.5, "motor_health": 1.20, "wow_dep": 1.80,
+                "flutter_dep": 0.145, "scrape_flutter": 0.150,
+                "drive": 1.75, "hiss": 0.000380, "hiss_color": 0.68,
+                "cutoff_base": 6500, "head_bump": 1.05,
+                "print_through": 0.012, "demagnetization": 0.38,
+                "dropout_rate": 0.22, "oxide_shedding": 0.24,
+                "asperities": 0.065, "barkhausen": 0.030,
             },
             "Dropout Disaster": {
-                "ips_base": 15.0, "motor_health": 0.5, "wow_dep": 0.5,
-                "drive": 1.8, "hiss": 0.000100, "hiss_color": 0.3,
-                "cutoff_base": 14000, "head_bump": 0.8,
-                "dropout_rate": 0.85, "oxide_shedding": 0.6,
-                "asperities": 0.08, "demagnetization": 0.1,
+                # Mechanically fine, catastrophic oxide loss
+                "ips_base": 15.0, "motor_health": 0.25, "wow_dep": 0.22,
+                "flutter_dep": 0.018, "scrape_flutter": 0.040,
+                "drive": 1.35, "hiss": 0.000090, "hiss_color": 0.25,
+                "cutoff_base": 14000, "head_bump": 0.52,
+                "dropout_rate": 0.70, "oxide_shedding": 0.42,
+                "asperities": 0.055, "demagnetization": 0.07,
             },
             "Heavily Demagnetised": {
-                "ips_base": 15.0, "motor_health": 0.4, "wow_dep": 0.3,
-                "drive": 1.5, "hiss": 0.000150, "hiss_color": 0.5,
-                "cutoff_base": 6000, "head_bump": 1.2,
-                "demagnetization": 0.85, "print_through": 0.04, "replay_diff": 0.15,
+                # Significant HF loss — -3dB at ~5 kHz, not 2 kHz
+                "ips_base": 15.0, "motor_health": 0.20, "wow_dep": 0.18,
+                "flutter_dep": 0.015, "scrape_flutter": 0.030,
+                "drive": 1.28, "hiss": 0.000120, "hiss_color": 0.45,
+                "cutoff_base": 7500, "head_bump": 0.60,
+                "demagnetization": 0.50, "print_through": 0.008, "replay_diff": 0.15,
             },
             "Warped & Fighting Motors": {
-                "ips_base": 15.0, "motor_health": 5.0, "motor_drag": 0.6,
-                "motor_boost": 0.6, "wow_dep": 12.0, "flutter_dep": 0.8,
-                "tension_load": 0.4, "drive": 2.0,
-                "hiss": 0.000199, "cutoff_base": 12000, "head_bump": 1.0,
-                "dropout_rate": 0.1, "scrape_flutter": 0.3,
+                # Competing motor forces — lurching, unstable speed
+                "ips_base": 15.0, "motor_health": 2.20, "motor_drag": 0.28,
+                "motor_boost": 0.28, "wow_dep": 4.00, "flutter_dep": 0.280,
+                "tension_load": 0.048, "drive": 1.55, "scrape_flutter": 0.140,
+                "hiss": 0.000199, "cutoff_base": 12000, "head_bump": 0.75,
+                "dropout_rate": 0.07,
             },
             "Chewed Tape": {
-                "ips_base": 7.5, "motor_health": 3.0, "wow_dep": 6.0,
-                "flutter_dep": 0.6, "scrape_flutter": 0.8,
-                "drive": 4.0, "hiss": 0.000600, "hiss_color": 0.8,
-                "cutoff_base": 4000, "head_bump": 3.0,
-                "dropout_rate": 0.7, "oxide_shedding": 0.8,
-                "asperities": 0.2, "demagnetization": 0.3, "tension_load": 0.35,
+                # Physically mangled — wrinkled, partially delaminated
+                "ips_base": 7.5, "motor_health": 1.50, "wow_dep": 2.50,
+                "flutter_dep": 0.240, "scrape_flutter": 0.220,
+                "drive": 1.95, "hiss": 0.000500, "hiss_color": 0.72,
+                "cutoff_base": 5500, "head_bump": 1.20,
+                "dropout_rate": 0.55, "oxide_shedding": 0.45,
+                "asperities": 0.100, "demagnetization": 0.18, "tension_load": 0.042,
             },
             "Print-Through Ghost": {
-                "ips_base": 15.0, "motor_health": 0.08, "wow_dep": 0.04,
-                "drive": 1.1, "hiss": 0.000035, "hiss_color": 0.1,
-                "cutoff_base": 19000, "head_bump": 0.4,
-                "print_through": 0.09, "replay_diff": 0.3,
-                "demagnetization": 0.05, "barkhausen": 0.006,
+                # Stored wound for years — audible pre-echo before loud passages
+                "ips_base": 15.0, "motor_health": 0.06, "wow_dep": 0.035,
+                "flutter_dep": 0.005, "scrape_flutter": 0.022,
+                "drive": 1.08, "hiss": 0.000035, "hiss_color": 0.10,
+                "cutoff_base": 19000, "head_bump": 0.38,
+                "print_through": 0.016, "replay_diff": 0.30,
+                "demagnetization": 0.04, "barkhausen": 0.005,
             },
             "Stretched Tape": {
-                # Physically elongated tape — permanent pitch instability,
-                # elastic resonance, uneven thickness modulation
-                "ips_base": 15.0, "motor_health": 1.5, "wow_dep": 5.0,
-                "flutter_dep": 0.35, "scrape_flutter": 0.2, "tension_load": 0.3,
-                "drive": 2.0, "hiss": 0.000158, "hiss_color": 0.4,
-                "cutoff_base": 11000, "head_bump": 1.5,
-                "dropout_rate": 0.15, "oxide_shedding": 0.2,
-                "demagnetization": 0.1,
+                # Elastically elongated — uneven thickness, wow from waviness
+                "ips_base": 15.0, "motor_health": 0.80, "wow_dep": 2.00,
+                "flutter_dep": 0.160, "scrape_flutter": 0.110, "tension_load": 0.038,
+                "drive": 1.45, "hiss": 0.000158, "hiss_color": 0.35,
+                "cutoff_base": 12000, "head_bump": 0.80,
+                "dropout_rate": 0.10, "oxide_shedding": 0.14,
+                "demagnetization": 0.08,
             },
             "Heat Warped": {
-                # Left in a hot car — hub deformed, layer separation,
-                # extreme wow from uneven winding
-                "ips_base": 7.5, "motor_health": 3.5, "wow_dep": 10.0,
-                "flutter_dep": 0.45, "scrape_flutter": 0.5, "tension_load": 0.35,
-                "drive": 2.5, "hiss": 0.000315, "hiss_color": 0.6,
-                "cutoff_base": 7000, "head_bump": 2.0,
-                "dropout_rate": 0.25, "oxide_shedding": 0.35,
-                "demagnetization": 0.25, "sticky_shed": 0.3,
+                # Left in a hot car — hub deformed, extreme wow from uneven winding
+                "ips_base": 7.5, "motor_health": 1.60, "wow_dep": 3.50,
+                "flutter_dep": 0.200, "scrape_flutter": 0.170, "tension_load": 0.042,
+                "drive": 1.62, "hiss": 0.000315, "hiss_color": 0.55,
+                "cutoff_base": 7500, "head_bump": 0.95,
+                "dropout_rate": 0.18, "oxide_shedding": 0.20,
+                "demagnetization": 0.16, "sticky_shed": 0.18,
             },
             "Spliced Archive": {
-                # Professional reel with many edit splices — tiny level bumps
-                # and phase glitches at each join, some print-through
-                "ips_base": 15.0, "motor_health": 0.15, "wow_dep": 0.15,
-                "flutter_dep": 0.012, "scrape_flutter": 0.06,
-                "drive": 1.15, "hiss": 0.000050, "hiss_color": 0.15,
-                "cutoff_base": 18000, "head_bump": 0.5,
-                "print_through": 0.045, "replay_diff": 0.3,
-                "dropout_rate": 0.05, "asperities": 0.03,
+                # Professional reel with many edit splices
+                "ips_base": 15.0, "motor_health": 0.12, "wow_dep": 0.12,
+                "flutter_dep": 0.010, "scrape_flutter": 0.045,
+                "drive": 1.12, "hiss": 0.000050, "hiss_color": 0.14,
+                "cutoff_base": 18000, "head_bump": 0.42,
+                "print_through": 0.010, "replay_diff": 0.30,
+                "dropout_rate": 0.04, "asperities": 0.022,
                 "mains_hum": 0.000010,
             },
             "Soviet ORWO Copy": {
-                # ORWO RN55 / UN54 — East German oxide, somewhat harsh HF,
-                # noisier than Western equivalents at similar speeds
-                "ips_base": 15.0, "motor_health": 0.6, "wow_dep": 0.4,
-                "flutter_dep": 0.05, "scrape_flutter": 0.12,
-                "drive": 1.6, "bias": 0.88,
-                "hiss": 0.000125, "hiss_color": 0.4, "cutoff_base": 15000,
-                "head_bump": 0.9, "print_through": 0.04, "replay_diff": 0.27,
-                "mains_hum": 0.000045, "barkhausen": 0.03, "asperities": 0.04,
-                "crosstalk": 0.05,
+                # ORWO RN55/UN54 — harsher HF, noisier than Western equivalents
+                "ips_base": 15.0, "motor_health": 0.40, "wow_dep": 0.22,
+                "flutter_dep": 0.035, "scrape_flutter": 0.075,
+                "drive": 1.45, "bias": 0.88,
+                "hiss": 0.000125, "hiss_color": 0.36, "cutoff_base": 15000,
+                "head_bump": 0.68, "print_through": 0.009, "replay_diff": 0.27,
+                "mains_hum": 0.000045, "barkhausen": 0.022, "asperities": 0.030,
+                "crosstalk": 0.04,
             },
             # ── Radio / Broadcast ─────────────────────────────────────────────
             "BBC Radiophonic (7.5ips)": {
-                # BBC Radiophonic Workshop — Ampex/EMI machines, precise alignment,
-                # heavy tape manipulation, some splicing artefacts
-                "ips_base": 7.5, "motor_health": 0.12, "wow_dep": 0.05,
-                "flutter_dep": 0.012, "scrape_flutter": 0.07,
-                "drive": 1.2, "bias": 0.98,
-                "hiss": 0.000079, "hiss_color": 0.2, "cutoff_base": 16000,
-                "head_bump": 0.7, "print_through": 0.03, "replay_diff": 0.3,
-                "mains_hum": 0.000020, "barkhausen": 0.01, "asperities": 0.015,
-                "dropout_rate": 0.03,
+                # BBC Radiophonic Workshop — well-maintained Ampex/EMI machines
+                "ips_base": 7.5, "motor_health": 0.10, "wow_dep": 0.042,
+                "flutter_dep": 0.009, "scrape_flutter": 0.042,
+                "drive": 1.18, "bias": 0.98,
+                "hiss": 0.000079, "hiss_color": 0.18, "cutoff_base": 16000,
+                "head_bump": 0.55, "print_through": 0.007, "replay_diff": 0.30,
+                "mains_hum": 0.000020, "barkhausen": 0.008, "asperities": 0.012,
+                "dropout_rate": 0.025,
             },
             "AM Radio Dub": {
-                # Tape of a radio broadcast — AM bandwidth, 50Hz hum from receiver,
-                # slight wow from the consumer deck used for recording
-                "ips_base": 3.75, "motor_health": 0.6, "wow_dep": 0.4,
-                "flutter_dep": 0.04, "scrape_flutter": 0.1,
-                "drive": 2.2, "bias": 0.88,
-                "hiss": 0.000200, "hiss_color": 0.55, "cutoff_base": 5000,
-                "head_bump": 1.2, "replay_diff": 0.22,
-                "mains_hum": 0.000080, "crosstalk": 0.12, "asperities": 0.04,
+                # Tape of an AM broadcast — bandwidth-limited, slight wow
+                "ips_base": 3.75, "motor_health": 0.32, "wow_dep": 0.20,
+                "flutter_dep": 0.025, "scrape_flutter": 0.058,
+                "drive": 1.52, "bias": 0.88,
+                "hiss": 0.000200, "hiss_color": 0.50, "cutoff_base": 5000,
+                "head_bump": 0.80, "replay_diff": 0.22,
+                "mains_hum": 0.000080, "crosstalk": 0.10, "asperities": 0.030,
             },
             # ── Lo-Fi / Special ───────────────────────────────────────────────
             "Ghetto Blaster": {
-                # High-bias chrome in a cheap portable — thin plastic head,
-                # worn pinch roller, drift from batteries running low
-                "ips_base": 1.875, "motor_health": 2.5, "wow_dep": 3.5,
-                "flutter_dep": 0.3, "scrape_flutter": 0.4,
-                "drive": 3.0, "bias": 1.1,
-                "hiss": 0.000398, "hiss_color": 0.65, "cutoff_base": 10000,
-                "head_bump": 2.2, "replay_diff": 0.17,
-                "mains_hum": 0.0, "crosstalk": 0.28, "asperities": 0.07,
-                "tension_load": 0.2, "azimuth_drift": 0.2,
+                # Cheap portable — worn pinch roller, battery voltage sag
+                "ips_base": 1.875, "motor_health": 1.10, "wow_dep": 1.40,
+                "flutter_dep": 0.130, "scrape_flutter": 0.120,
+                "drive": 1.72, "bias": 1.1,
+                "hiss": 0.000398, "hiss_color": 0.60, "cutoff_base": 10000,
+                "head_bump": 1.00, "replay_diff": 0.17,
+                "mains_hum": 0.0, "crosstalk": 0.24, "asperities": 0.052,
+                "tension_load": 0.025, "azimuth_drift": 0.12,
             },
             "Answering Machine": {
-                # Micro-cassette at 1.2 IPS — tiny head, extreme HF loss,
-                # massive wow from the tiny motor
-                "ips_base": 1.2, "motor_health": 3.0, "wow_dep": 5.0,
-                "flutter_dep": 0.5, "scrape_flutter": 0.55,
-                "drive": 4.0, "bias": 0.75,
-                "hiss": 0.000631, "hiss_color": 0.75, "cutoff_base": 5500,
-                "head_bump": 3.0, "replay_diff": 0.12,
-                "mains_hum": 0.0, "crosstalk": 0.4, "asperities": 0.1,
-                "azimuth_drift": 0.3, "tension_load": 0.25,
+                # Micro-cassette at 1.2 IPS — tiny head, big wow, very lo-fi
+                "ips_base": 1.2, "motor_health": 1.40, "wow_dep": 2.20,
+                "flutter_dep": 0.220, "scrape_flutter": 0.185,
+                "drive": 2.10, "bias": 0.75,
+                "hiss": 0.000631, "hiss_color": 0.70, "cutoff_base": 6000,
+                "head_bump": 1.30, "replay_diff": 0.12,
+                "mains_hum": 0.0, "crosstalk": 0.32, "asperities": 0.065,
+                "azimuth_drift": 0.18, "tension_load": 0.032,
             },
             "Handheld Dictaphone": {
-                # Compact cassette at slow speed, AGC compression artefacts,
-                # mono head on stereo tape
-                "ips_base": 0.9375, "motor_health": 2.8, "wow_dep": 4.5,
-                "flutter_dep": 0.45, "scrape_flutter": 0.6,
-                "drive": 3.5, "bias": 0.78,
-                "hiss": 0.000794, "hiss_color": 0.8, "cutoff_base": 4500,
-                "head_bump": 2.8, "replay_diff": 0.1,
-                "mains_hum": 0.0, "crosstalk": 0.45, "asperities": 0.12,
-                "azimuth_drift": 0.35,
+                # Compact cassette at very slow speed
+                "ips_base": 0.9375, "motor_health": 1.30, "wow_dep": 1.90,
+                "flutter_dep": 0.190, "scrape_flutter": 0.165,
+                "drive": 1.95, "bias": 0.78,
+                "hiss": 0.000794, "hiss_color": 0.75, "cutoff_base": 5000,
+                "head_bump": 1.20, "replay_diff": 0.10,
+                "mains_hum": 0.0, "crosstalk": 0.38, "asperities": 0.070,
+                "azimuth_drift": 0.22,
             },
             "Toy Piano Recording": {
-                # Cheap toy recorder from 1970s — elastic band drive,
-                # completely random speed, lo-fi magic
-                "ips_base": 1.875, "motor_health": 8.0, "wow_dep": 18.0,
-                "flutter_dep": 1.5, "scrape_flutter": 0.9,
-                "drive": 5.0, "bias": 0.65,
-                "hiss": 0.001000, "hiss_color": 0.85, "cutoff_base": 3000,
-                "head_bump": 4.0, "replay_diff": 0.1,
-                "mains_hum": 0.0, "crosstalk": 0.5, "asperities": 0.18,
-                "dropout_rate": 0.15, "tension_load": 0.4,
+                # Elastic-band-drive toy recorder from the 1970s
+                "ips_base": 1.875, "motor_health": 3.50, "wow_dep": 7.00,
+                "flutter_dep": 0.550, "scrape_flutter": 0.280,
+                "drive": 2.40, "bias": 0.65,
+                "hiss": 0.001000, "hiss_color": 0.82, "cutoff_base": 3500,
+                "head_bump": 1.60, "replay_diff": 0.10,
+                "mains_hum": 0.0, "crosstalk": 0.45, "asperities": 0.130,
+                "dropout_rate": 0.12, "tension_load": 0.050,
             },
             # ── More Damaged ──────────────────────────────────────────────────
             "Tsunami Flood Tape": {
-                # Water-damaged, dried without cleaning — oxide loosened,
-                # erratic dropout storms, residue on heads
-                "ips_base": 7.5, "motor_health": 3.5, "wow_dep": 5.0,
-                "flutter_dep": 0.4, "scrape_flutter": 0.65,
-                "drive": 3.5, "hiss": 0.000700, "hiss_color": 0.7,
-                "cutoff_base": 4500, "head_bump": 3.0,
-                "dropout_rate": 0.65, "oxide_shedding": 0.75,
-                "demagnetization": 0.4, "asperities": 0.18,
-                "sticky_shed": 0.6, "tension_load": 0.3,
+                # Water-damaged, dried without cleaning
+                "ips_base": 7.5, "motor_health": 1.60, "wow_dep": 2.20,
+                "flutter_dep": 0.175, "scrape_flutter": 0.200,
+                "drive": 1.80, "hiss": 0.000600, "hiss_color": 0.65,
+                "cutoff_base": 5500, "head_bump": 1.15,
+                "dropout_rate": 0.50, "oxide_shedding": 0.45,
+                "demagnetization": 0.26, "asperities": 0.095,
+                "sticky_shed": 0.35, "tension_load": 0.042,
             },
             "Fire-Damaged Archive": {
-                # Heat warped, partial oxide sublimation, magnetic domains
-                # partially randomised — thin wispy signal, constant dropout
-                "ips_base": 7.5, "motor_health": 4.0, "wow_dep": 7.0,
-                "flutter_dep": 0.55, "scrape_flutter": 0.75,
-                "drive": 5.0, "hiss": 0.000630, "hiss_color": 0.8,
-                "cutoff_base": 3000, "head_bump": 2.5,
-                "dropout_rate": 0.75, "oxide_shedding": 0.9,
-                "demagnetization": 0.7, "asperities": 0.25,
-                "sticky_shed": 0.8, "tension_load": 0.45,
+                # Heat warped, partial oxide sublimation
+                "ips_base": 7.5, "motor_health": 1.80, "wow_dep": 3.00,
+                "flutter_dep": 0.240, "scrape_flutter": 0.230,
+                "drive": 2.20, "hiss": 0.000630, "hiss_color": 0.75,
+                "cutoff_base": 4500, "head_bump": 1.25,
+                "dropout_rate": 0.60, "oxide_shedding": 0.55,
+                "demagnetization": 0.45, "asperities": 0.120,
+                "sticky_shed": 0.45, "tension_load": 0.050,
             },
             "Played 1000 Times": {
-                # Heavily worn — oxide thinned from head friction, print-through
-                # from years of storage, loss of high coercivity particles
-                "ips_base": 7.5, "motor_health": 0.8, "wow_dep": 0.8,
-                "flutter_dep": 0.1, "scrape_flutter": 0.2,
-                "drive": 2.5, "hiss": 0.000316, "hiss_color": 0.45,
-                "cutoff_base": 8000, "head_bump": 1.5,
-                "dropout_rate": 0.12, "oxide_shedding": 0.45,
-                "demagnetization": 0.5, "print_through": 0.06,
-                "asperities": 0.09, "barkhausen": 0.04,
+                # Oxide thinned from head friction, years of print-through
+                "ips_base": 7.5, "motor_health": 0.45, "wow_dep": 0.40,
+                "flutter_dep": 0.055, "scrape_flutter": 0.080,
+                "drive": 1.55, "hiss": 0.000280, "hiss_color": 0.40,
+                "cutoff_base": 8500, "head_bump": 0.78,
+                "dropout_rate": 0.08, "oxide_shedding": 0.24,
+                "demagnetization": 0.32, "print_through": 0.012,
+                "asperities": 0.055, "barkhausen": 0.028,
             },
         }
 
