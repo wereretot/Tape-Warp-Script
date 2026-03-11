@@ -408,8 +408,8 @@ class ForensicTapeStudio:
         self._setup_styles()
         self.setup_gui()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
-        log_ui.info("Applying default preset: Master Studio Reel (30ips)")
-        self.apply_builtin_preset("Master Studio Reel (30ips)")
+        log_ui.info("Applying default preset: Ampex 456 (30ips)")
+        self.apply_builtin_preset("Ampex 456 (30ips)")
         self.update_telemetry()
         log_ui.info("GUI ready")
 
@@ -1538,10 +1538,18 @@ class ForensicTapeStudio:
             return
 
         # Add to combobox if it's a named preset not already in the list
-        if name and name not in ("Custom", "") and name not in self.preset_var["values"]:
-            new_vals = list(self.preset_var["values"]) + [f"[+] {name}"]
-            self.preset_cb.config(values=new_vals)
-            self.preset_var.set(f"[+] {name}")
+        cur_vals = list(self.preset_cb["values"])
+        tag = f"[+] {name}" if name and name not in ("Custom", "") else ""
+        if tag and tag not in cur_vals:
+            cur_vals.append(tag)
+            self.preset_cb.config(values=cur_vals)
+
+        # Store in session presets so _on_preset_selected can route back to it
+        if not hasattr(self, '_session_presets'):
+            self._session_presets = {}
+        if tag:
+            self._session_presets[name] = data
+            self.preset_var.set(tag)
         else:
             self.preset_var.set("")
 
